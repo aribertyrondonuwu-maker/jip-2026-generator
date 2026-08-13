@@ -21,17 +21,23 @@ st.write(
 )
 
 # ---------------------------------------------------------
-# SIDEBAR - OPSI VERSI NASKAH
+# SIDEBAR - OPSI VERSI NASKAH & CATATAN KEBIJAKAN
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ Pengaturan Mode Naskah")
+
+# Blind Review diletakkan pertama sebagai default (keamanan submit awal)
 versi_naskah = st.sidebar.radio(
     "Pilih Versi Output Document:",
-    ["Final (Lengkap)", "Blind Review"],
-    help=(
-        "Mode 'Blind Review' akan otomatis menyembunyikan identitas penulis,"
-        " afiliasi, email, dan ucapan terima kasih pada file Word yang"
-        " diunduh."
-    ),
+    ["Blind Review", "Final (Lengkap)"],
+    index=0,
+    help="Pilih 'Blind Review' untuk submit awal, atau 'Final (Lengkap)' jika naskah sudah dinyatakan diterima.",
+)
+
+# Catatan kebijakan bagi penulis
+st.sidebar.info(
+    "📌 **Panduan Kebijakan Submission:**\n\n"
+    "• **Blind Review**: Wajib digunakan saat **Pengajuan Awal (Submit & Proses Review)**. Identitas penulis dan ucapan terima kasih akan disembunyikan otomatis.\n\n"
+    "• **Final (Lengkap)**: Digunakan setelah naskah **Diterima (Accepted / Layout Final)** untuk proses penerbitan."
 )
 
 # ---------------------------------------------------------
@@ -53,9 +59,7 @@ with tab1:
     )
     judul_en = st.text_input(
         "Title in English (Max 20 Words)",
-        value=(
-            "Diversity of Goby Fish in Tondano River Estuary, North Sulawesi"
-        ),
+        value="Diversity of Goby Fish in Tondano River Estuary, North Sulawesi",
     )
     running_title = st.text_input(
         "Running Title (Maks 60 Karakter)",
@@ -78,10 +82,7 @@ with tab1:
     )
     afiliasi = st.text_area(
         "Afiliasi / Instansi Penulis",
-        value=(
-            "Fakultas Perikanan dan Ilmu Kelautan, Universitas Sam"
-            " Ratulangi, Manado"
-        ),
+        value="Fakultas Perikanan dan Ilmu Kelautan, Universitas Sam Ratulangi, Manado",
     )
     email_korespondensi = st.text_input(
         "Email Korespondensi", value="aribertyrondonuwu@unsrat.ac.id"
@@ -91,10 +92,7 @@ with tab2:
     abstrak_id = st.text_area(
         "Abstrak (Bahasa Indonesia)",
         height=150,
-        value=(
-            "Penelitian ini bertujuan untuk menganalisis keanekaragaman ikan"
-            " Gobi di muara Sungai Tondano..."
-        ),
+        value="Penelitian ini bertujuan untuk menganalisis keanekaragaman ikan Gobi di muara Sungai Tondano...",
     )
     kata_kunci_id = st.text_input(
         "Kata Kunci (Pisahkan dengan koma)",
@@ -103,10 +101,7 @@ with tab2:
     abstract_en = st.text_area(
         "Abstract (English)",
         height=150,
-        value=(
-            "This study aims to analyze the diversity of Goby fish in the"
-            " Tondano River estuary..."
-        ),
+        value="This study aims to analyze the diversity of Goby fish in the Tondano River estuary...",
     )
     keywords_en = st.text_input(
         "Keywords (Pisahkan dengan koma)",
@@ -122,17 +117,12 @@ with tab3:
     bab2 = st.text_area(
         "Bab 2: Metode Penelitian",
         height=150,
-        value=(
-            "Penelitian dilaksanakan pada bulan Januari hingga Maret 2026..."
-        ),
+        value="Penelitian dilaksanakan pada bulan Januari hingga Maret 2026...",
     )
     bab3 = st.text_area(
         "Bab 3: Hasil dan Pembahasan",
         height=150,
-        value=(
-            "Berdasarkan hasil tangkapan di tiga stasiun pengamatan,"
-            " ditemukan..."
-        ),
+        value="Berdasarkan hasil tangkapan di tiga stasiun pengamatan, ditemukan...",
     )
     bab4 = st.text_area(
         "Bab 4: Kesimpulan dan Saran",
@@ -144,10 +134,7 @@ with tab4:
     ucapan_terima_kasih = st.text_area(
         "Ucapan Terima Kasih (Acknowledgements)",
         height=100,
-        value=(
-            "Penulis mengucapkan terima kasih kepada Laboratorium Biologi"
-            " Laut..."
-        ),
+        value="Penulis mengucapkan terima kasih kepada Laboratorium Biologi Laut...",
     )
     if versi_naskah == "Blind Review":
         st.caption(
@@ -158,10 +145,7 @@ with tab4:
     daftar_pustaka = st.text_area(
         "Daftar Pustaka (APA Style)",
         height=200,
-        value=(
-            "Rondonuwu, A. B. (2026). Ikhtiofauna Perairan Tawar dan Payau."
-            " Jurnal Ilmiah PLATAX, 14(1), 10-20."
-        ),
+        value="Rondonuwu, A. B. (2026). Ikhtiofauna Perairan Tawar dan Payau. Jurnal Ilmiah PLATAX, 14(1), 10-20.",
     )
 
 
