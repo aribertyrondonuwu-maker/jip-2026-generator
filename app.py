@@ -126,9 +126,16 @@ with tab1:
     with c2:
         judul_en = st.text_input("Title in English (max. 20 words)",
                                  "Diversity of Goby Fish in Tondano River Estuary, North Sulawesi")
-    running_title = st.text_input("Judul singkat / Running title (maks. 60 karakter)",
-                                  "Keanekaragaman Ikan Gobi Muara Tondano", max_chars=60)
-    st.caption(f"{len(running_title)}/60 karakter")
+    running_title = st.text_input(
+        "Running title (max. 60 characters)" if EN
+        else "Judul singkat / Running title (maks. 60 karakter)",
+        "Goby Diversity in Tondano River Estuary" if EN
+        else "Keanekaragaman Ikan Gobi Muara Tondano",
+        max_chars=60,
+        help="Ditulis dalam bahasa naskah — satu versi saja, karena dipakai pada header "
+             "halaman genap yang hanya menyediakan satu ruas teks (Petunjuk §4).")
+    st.caption(f"{len(running_title)}/60 " + ("characters" if EN else "karakter")
+               + (" · ikuti bahasa naskah, tidak perlu dwibahasa" if not EN else ""))
 
     st.markdown("---")
     st.subheader("Informasi Penulis")
