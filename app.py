@@ -86,6 +86,12 @@ st.sidebar.caption(
     "pada baris kedua (Petunjuk §1).")
 st.sidebar.markdown("---")
 
+
+def L(teks_id: str, teks_en: str) -> str:
+    """Pilih teks antarmuka sesuai bahasa naskah."""
+    return teks_en if EN else teks_id
+
+
 versi = st.sidebar.radio("Versi dokumen keluaran:",
                          ["Blind Review", "Final (Lengkap)"], index=0,
                          help="Blind Review untuk pengiriman awal; "
@@ -107,24 +113,31 @@ else:
     unggahan_template = st.sidebar.file_uploader("Unggah template .docx", type=["docx"])
 
 st.title("📄 JIP 2026 Article Auto-Generator")
-st.write("Aplikasi mengisi **template resmi PLATAX 2026** secara langsung, sehingga masthead, "
-         "logo, kotak abstrak, margin, header, footer, dan seluruh tipografi mengikuti "
-         "template apa adanya.")
+st.write(L("Aplikasi mengisi **template resmi PLATAX 2026** secara langsung, sehingga masthead, "
+           "logo, kotak abstrak, margin, header, footer, dan seluruh tipografi mengikuti "
+           "template apa adanya.",
+           "The app fills the **official PLATAX 2026 template** directly, so the masthead, logo, "
+           "abstract boxes, margins, header, footer, and all typography follow the template "
+           "exactly as issued."))
 
 # =========================================================
 # FORMULIR
 # =========================================================
 tab1, tab2, tab3, tab5, tab4 = st.tabs(
     ["📌 Identitas & Judul", "📝 Abstract & Abstrak", "📄 Bab 1–5",
-     "📊 Tabel & Gambar", "🤝 Pernyataan & Pustaka"])
+     "📊 Tabel & Gambar", "🤝 Pernyataan & Pustaka"] if not EN else
+    ["📌 Title & Authors", "📝 Abstracts", "📄 Sections 1–5",
+     "📊 Tables & Figures", "🤝 Statements & References"])
 
 with tab1:
     c1, c2 = st.columns(2)
     with c1:
-        judul_id = st.text_input("Judul Bahasa Indonesia (maks. 20 kata)",
+        judul_id = st.text_input(L("Judul Bahasa Indonesia (maks. 20 kata)",
+                                   "Indonesian title (max. 20 words)"),
                                  "Keanekaragaman Ikan Gobi di Muara Sungai Tondano, Sulawesi Utara")
     with c2:
-        judul_en = st.text_input("Title in English (max. 20 words)",
+        judul_en = st.text_input(L("Title in English (max. 20 words)",
+                                   "English title (max. 20 words)"),
                                  "Diversity of Goby Fish in Tondano River Estuary, North Sulawesi")
     running_title = st.text_input(
         "Running title (max. 60 characters)" if EN
@@ -138,14 +151,17 @@ with tab1:
                + (" · ikuti bahasa naskah, tidak perlu dwibahasa" if not EN else ""))
 
     st.markdown("---")
-    st.subheader("Informasi Penulis")
+    st.subheader(L("Informasi Penulis", "Author Information"))
     if is_blind:
         st.info("ℹ️ Mode Blind Review aktif: data di bawah tetap boleh diisi, tetapi tidak "
                 "dimunculkan dalam berkas Word. Gunakan untuk menyusun Title Page terpisah.")
 
-    st.markdown("**1. Daftar penulis** — kolom *No. afiliasi* cukup diisi angka urut "
-                "(1, 2, 3 …). Penulis dengan dua afiliasi ditulis `1,2`. Kotak isian "
-                "afiliasinya muncul otomatis di bawah.")
+    st.markdown(L("**1. Daftar penulis** — kolom *No. afiliasi* cukup diisi angka urut "
+                  "(1, 2, 3 …). Penulis dengan dua afiliasi ditulis `1,2`. Kotak isian "
+                  "afiliasinya muncul otomatis di bawah.",
+                  "**1. Author list** — the *Affiliation no.* column takes plain numbers "
+                  "(1, 2, 3 …). An author with two affiliations is written `1,2`. The "
+                  "affiliation fields appear automatically below."))
     tabel_penulis = st.data_editor(
         [
             {"Nama": "Febry S. I. Menajang", "Afiliasi": "1", "Korespondensi": True,
@@ -154,14 +170,17 @@ with tab1:
             {"Nama": "John L. Tombokan", "Afiliasi": "2", "Korespondensi": False, "ORCID": ""},
             {"Nama": "Veibe Warouw", "Afiliasi": "1,2", "Korespondensi": False, "ORCID": ""},
         ],
-        num_rows="dynamic", use_container_width=True, key="tabel_penulis",
+        num_rows="dynamic", width="stretch", key="tabel_penulis",
         column_config={
             "Nama": st.column_config.TextColumn(
-                "Nama penulis", required=True, width="large",
-                help="Nama lengkap tanpa gelar. Jangan ketik angka superskrip di sini."),
-            "Afiliasi": st.column_config.TextColumn("No. afiliasi", width="small",
-                                                    help="Contoh: 1 atau 1,2"),
-            "Korespondensi": st.column_config.CheckboxColumn("Koresp.", width="small"),
+                L("Nama penulis", "Author name"), required=True, width="large",
+                help=L("Nama lengkap tanpa gelar. Jangan ketik angka superskrip di sini.",
+                       "Full name without titles. Do not type superscript numbers here.")),
+            "Afiliasi": st.column_config.TextColumn(
+                L("No. afiliasi", "Affiliation no."), width="small",
+                help=L("Contoh: 1 atau 1,2", "Example: 1 or 1,2")),
+            "Korespondensi": st.column_config.CheckboxColumn(
+                L("Koresp.", "Corresp."), width="small"),
             "ORCID": st.column_config.TextColumn("ORCID iD", width="medium"),
         })
 
@@ -173,8 +192,10 @@ with tab1:
         for x in re.findall(r"\d+", str(baris.get("Afiliasi") or ""))
     })
 
-    st.markdown("**2. Afiliasi** — satu kotak per nomor yang dirujuk di atas. "
-                "Penulis se-institusi cukup memakai nomor yang sama.")
+    st.markdown(L("**2. Afiliasi** — satu kotak per nomor yang dirujuk di atas. "
+                  "Penulis se-institusi cukup memakai nomor yang sama.",
+                  "**2. Affiliations** — one field per number referenced above. Authors from "
+                  "the same institution simply share the same number."))
     CONTOH_AFILIASI = [
         "Program Studi Ilmu Kelautan, Fakultas Perikanan dan Ilmu Kelautan, "
         "Universitas Sam Ratulangi, Manado, 95115, Indonesia",
@@ -182,7 +203,8 @@ with tab1:
         "Universitas Sam Ratulangi, Manado, 95115, Indonesia",
     ]
     if not nomor_dirujuk:
-        st.caption("Belum ada nomor afiliasi pada tabel penulis.")
+        st.caption(L("Belum ada nomor afiliasi pada tabel penulis.",
+                     "No affiliation number entered in the author table yet."))
         daftar_afiliasi = []
     else:
         if nomor_dirujuk != list(range(1, len(nomor_dirujuk) + 1)):
@@ -192,7 +214,8 @@ with tab1:
         for nomor in nomor_dirujuk:
             contoh = CONTOH_AFILIASI[nomor - 1] if nomor <= len(CONTOH_AFILIASI) else ""
             isian[nomor] = st.text_area(
-                f"Afiliasi {nomor}  (Departemen, Fakultas, Universitas, Kota, Kode Pos, Negara)",
+                L(f"Afiliasi {nomor}  (Departemen, Fakultas, Universitas, Kota, Kode Pos, Negara)",
+                  f"Affiliation {nomor}  (Department, Faculty, University, City, Postcode, Country)"),
                 value=contoh, height=68, key=f"afiliasi_{nomor}")
         # Daftar dipadatkan menjadi 1..n agar penomoran pada naskah selalu rapat
         peta = {lama: baru for baru, lama in enumerate(nomor_dirujuk, 1)}
@@ -203,119 +226,177 @@ with tab1:
     for c in catatan_penulis:
         st.warning(c)
     if penulis_list:
-        st.caption("Pratinjau baris penulis: " + ", ".join(
+        st.caption(L("Pratinjau baris penulis: ", "Author line preview: ") + ", ".join(
             p.nama + ("^" + ",".join(map(str, p.afil)) if p.afil else "")
             + ("*" if p.koresp else "") for p in penulis_list))
 
     c3, c4 = st.columns(2)
     with c3:
-        telepon = st.text_input("Telepon korespondensi", "+62-8XXXXXXXXXX")
+        telepon = st.text_input(L("Telepon korespondensi", "Corresponding author phone"),
+                                "+62-8XXXXXXXXXX")
     with c4:
-        email = st.text_input("Surel korespondensi", "nama@unsrat.ac.id")
+        email = st.text_input(L("Surel korespondensi", "Corresponding author e-mail"),
+                              "nama@unsrat.ac.id")
 
 with tab2:
-    st.caption("Urutan template: Abstract (EN) lebih dahulu, baru Abstrak (ID). "
-               "150–250 kata per bahasa, satu paragraf naratif, tanpa sitasi.")
+    st.caption(L("Urutan template: Abstract (EN) lebih dahulu, baru Abstrak (ID). "
+                 "150–250 kata per bahasa, satu paragraf naratif, tanpa sitasi.",
+                 "Template order: Abstract (EN) first, then Abstrak (ID). 150–250 words per "
+                 "language, a single narrative paragraph, no citations."))
     abstract_en = st.text_area("Abstract (English)", height=170,
                                value="This study analysed the diversity of goby fish...")
-    keywords_en = st.text_input("Keywords (5, pisahkan dengan koma)",
+    keywords_en = st.text_input(L("Keywords (5, pisahkan dengan koma)",
+                                  "Keywords (5, comma-separated)"),
                                 "Goby fish, Diversity, Tondano River, Estuary, North Sulawesi")
-    st.caption(f"Abstract: {len(abstract_en.split())} kata")
+    st.caption(f"Abstract: {len(abstract_en.split())} " + L("kata", "words"))
     abstrak_id = st.text_area("Abstrak (Bahasa Indonesia)", height=170,
                               value="Penelitian ini menganalisis keanekaragaman ikan gobi...")
-    kata_kunci_id = st.text_input("Kata kunci (5, pisahkan dengan koma)",
+    kata_kunci_id = st.text_input(L("Kata kunci (5, pisahkan dengan koma)",
+                                    "Kata kunci / Indonesian keywords (5, comma-separated)"),
                                   "Ikan gobi, Keanekaragaman, Sungai Tondano, Estuari, Sulawesi Utara")
-    st.caption(f"Abstrak: {len(abstrak_id.split())} kata")
+    st.caption(f"Abstrak: {len(abstrak_id.split())} " + L("kata", "words"))
 
 with tab3:
-    st.caption("Satu baris kosong = paragraf baru. Sitiran seperti (Froese & Pauly, 2024) "
-               "atau Rondonuwu et al. (2025) otomatis diwarnai biru 007BB8.")
-    bab1 = st.text_area("1. Pendahuluan", height=140,
-                        value="Muara Sungai Tondano memiliki peranan ekologis penting "
-                              "(Carpenter & Niem, 1998).\n"
-                              "Rondonuwu et al. (2025) mencatat kebaruan jenis di kawasan ini.\n"
-                              "Penelitian ini bertujuan menilai keanekaragaman ikan gobi.")
-    st.markdown("**2. Bahan dan Metode**")
-    metode_21 = st.text_area("2.1. Waktu dan lokasi penelitian", height=80,
-                             value="Penelitian dilaksanakan Januari–Maret 2026 pada tiga stasiun...")
-    metode_22 = st.text_area("2.2. Pengumpulan data", height=80,
-                             value="Pengambilan sampel menggunakan jaring insang dengan tiga ulangan...")
-    metode_221 = st.text_area("2.2.1. Analisis laboratorium", height=80,
-                              value="Identifikasi morfometrik dilakukan di laboratorium...")
-    metode_23 = st.text_area("2.3. Analisis data", height=80,
-                             value="Indeks Shannon-Wiener dihitung menggunakan PAST v4.03...")
-    bab3 = st.text_area("3. Hasil", height=120,
-                        value="Tercatat 12 jenis dari tiga stasiun pengamatan (Tabel 1).")
-    bab4 = st.text_area("4. Pembahasan", height=140,
-                        value="Tingginya keanekaragaman diduga berkaitan dengan variasi salinitas...")
-    bab5 = st.text_area("5. Simpulan (maks. 150 kata)", height=90,
-                        value="Keanekaragaman ikan gobi tergolong sedang...")
-    st.caption(f"Simpulan: {len(bab5.split())} kata")
+    st.caption(L("Satu baris kosong = paragraf baru. Sitiran seperti (Froese & Pauly, 2024) "
+                 "atau Rondonuwu et al. (2025) otomatis diwarnai biru 007BB8.",
+                 "One line break = new paragraph. Citations such as (Froese & Pauly, 2024) or "
+                 "Rondonuwu et al. (2025) are automatically coloured blue 007BB8."))
+    bab1 = st.text_area(
+        L("1. Pendahuluan", "1. Introduction"), height=140,
+        value=L("Muara Sungai Tondano memiliki peranan ekologis penting "
+                "(Carpenter & Niem, 1998).\n"
+                "Rondonuwu et al. (2025) mencatat kebaruan jenis di kawasan ini.\n"
+                "Penelitian ini bertujuan menilai keanekaragaman ikan gobi.",
+                "The Tondano River estuary plays an important ecological role "
+                "(Carpenter & Niem, 1998).\n"
+                "Rondonuwu et al. (2025) reported a new record for the area.\n"
+                "This study aims to assess goby diversity in the estuary."))
+    st.markdown(L("**2. Bahan dan Metode**", "**2. Materials and Methods**"))
+    metode_21 = st.text_area(
+        L("2.1. Waktu dan lokasi penelitian", "2.1. Study period and location"), height=80,
+        value=L("Penelitian dilaksanakan Januari–Maret 2026 pada tiga stasiun...",
+                "The study was conducted from January to March 2026 at three stations..."))
+    metode_22 = st.text_area(
+        L("2.2. Pengumpulan data", "2.2. Data collection"), height=80,
+        value=L("Pengambilan sampel menggunakan jaring insang dengan tiga ulangan...",
+                "Sampling used gill nets with three replicates..."))
+    metode_221 = st.text_area(
+        L("2.2.1. Analisis laboratorium", "2.2.1. Laboratory analysis"), height=80,
+        value=L("Identifikasi morfometrik dilakukan di laboratorium...",
+                "Morphometric identification was carried out in the laboratory..."))
+    metode_23 = st.text_area(
+        L("2.3. Analisis data", "2.3. Data analysis"), height=80,
+        value=L("Indeks Shannon-Wiener dihitung menggunakan PAST v4.03...",
+                "The Shannon-Wiener index was computed using PAST v4.03..."))
+    bab3 = st.text_area(
+        L("3. Hasil", "3. Results"), height=120,
+        value=L("Tercatat 12 jenis dari tiga stasiun pengamatan (Tabel 1).",
+                "Twelve species were recorded across the three stations (Table 1)."))
+    bab4 = st.text_area(
+        L("4. Pembahasan", "4. Discussion"), height=140,
+        value=L("Tingginya keanekaragaman diduga berkaitan dengan variasi salinitas...",
+                "The high diversity is likely related to salinity variation..."))
+    bab5 = st.text_area(
+        L("5. Simpulan (maks. 150 kata)", "5. Conclusions (max. 150 words)"), height=90,
+        value=L("Keanekaragaman ikan gobi tergolong sedang...",
+                "Goby diversity in the estuary is moderate..."))
+    st.caption(L(f"Simpulan: {len(bab5.split())} kata",
+                 f"Conclusions: {len(bab5.split())} words"))
 
 with tab5:
-    st.caption("Keterangan tabel di ATAS tabel, keterangan gambar di BAWAH gambar, "
-               "masing-masing wajib disertai terjemahan Inggris pada baris kedua.")
+    st.caption(L("Keterangan tabel di ATAS tabel, keterangan gambar di BAWAH gambar. "
+                 "Naskah Indonesia WAJIB menyertakan terjemahan Inggris pada baris kedua.",
+                 "Table captions go ABOVE the table, figure captions BELOW the figure. "
+                 "English manuscripts do not need the Indonesian translation line."))
     if EN:
-        st.caption("Naskah berbahasa Inggris: hanya keterangan Inggris yang dipakai; "
-                   "kolom Indonesia boleh dikosongkan.")
-    cap_tabel_id = st.text_input("Keterangan Tabel 1 (Indonesia)",
-                                 "Parameter kualitas air pada dua stasiun pengamatan.")
-    cap_tabel_en = st.text_input("Table 1 caption (English)",
-                                 "Water quality parameters at two observation stations.")
-    tabel_data = st.text_area("Isi tabel — kolom dipisah tab atau titik koma; "
-                              "baris pertama = kepala tabel", height=110,
-                              value="Parameter;Stasiun 1;Stasiun 2\n"
-                                    "Suhu (°C);28,4 ± 0,3;29,1 ± 0,5\n"
-                                    "Salinitas (‰);32,1 ± 0,4;31,8 ± 0,6")
-    cat_tabel = st.text_input("Keterangan kaki tabel",
-                              "Keterangan: nilai merupakan rerata ± simpangan baku.")
+        st.caption("Manuscript language is English: only the English caption is used; "
+                   "the Indonesian field may be left blank.")
+    cap_tabel_id = st.text_input(
+        L("Keterangan Tabel 1 (Indonesia)", "Tabel 1 caption (Indonesian — optional)"),
+        "Parameter kualitas air pada dua stasiun pengamatan.")
+    cap_tabel_en = st.text_input(
+        L("Table 1 caption (English)", "Table 1 caption (English)"),
+        "Water quality parameters at two observation stations.")
+    tabel_data = st.text_area(
+        L("Isi tabel — kolom dipisah tab atau titik koma; baris pertama = kepala tabel",
+          "Table content — columns separated by tab or semicolon; first row = header"),
+        height=110,
+        value=L("Parameter;Stasiun 1;Stasiun 2\n"
+                "Suhu (°C);28,4 ± 0,3;29,1 ± 0,5\n"
+                "Salinitas (‰);32,1 ± 0,4;31,8 ± 0,6",
+                "Parameter;Station 1;Station 2\n"
+                "Temperature (°C);28.4 ± 0.3;29.1 ± 0.5\n"
+                "Salinity (‰);32.1 ± 0.4;31.8 ± 0.6"))
+    cat_tabel = st.text_input(
+        L("Keterangan kaki tabel", "Table footnote"),
+        L("Keterangan: nilai merupakan rerata ± simpangan baku.",
+          "values are means ± standard deviation."))
     st.markdown("---")
-    berkas_gambar = st.file_uploader("Unggah Gambar 1 (≥300 dpi; TIFF/PNG/JPEG)",
-                                     type=["png", "jpg", "jpeg", "tif", "tiff"])
-    cap_gambar_id = st.text_input("Keterangan Gambar 1 (Indonesia)",
-                                  "Peta lokasi penelitian di Muara Sungai Tondano.")
-    cap_gambar_en = st.text_input("Figure 1 caption (English)",
-                                  "Map of the study site at the Tondano River Estuary.")
-    lebar_gambar = st.slider("Lebar gambar (cm) — maks. 7,6 cm untuk satu kolom",
-                             4.0, 7.6, 7.6, 0.2)
+    berkas_gambar = st.file_uploader(
+        L("Unggah Gambar 1 (≥300 dpi; TIFF/PNG/JPEG)",
+          "Upload Figure 1 (≥300 dpi; TIFF/PNG/JPEG)"),
+        type=["png", "jpg", "jpeg", "tif", "tiff"])
+    cap_gambar_id = st.text_input(
+        L("Keterangan Gambar 1 (Indonesia)", "Gambar 1 caption (Indonesian — optional)"),
+        "Peta lokasi penelitian di Muara Sungai Tondano.")
+    cap_gambar_en = st.text_input(
+        L("Figure 1 caption (English)", "Figure 1 caption (English)"),
+        "Map of the study site at the Tondano River Estuary.")
+    lebar_gambar = st.slider(
+        L("Lebar gambar (cm) — maks. 7,6 cm untuk satu kolom",
+          "Figure width (cm) — max. 7.6 cm for a single column"),
+        4.0, 7.6, 7.6, 0.2)
 
 with tab4:
-    st.caption("Tujuh pernyataan akhir wajib, urutan FAS sudah ditetapkan template. "
-               "Bila tidak relevan tulis 'Tidak berlaku / Not applicable'.")
-    konflik = st.text_area("Konflik kepentingan (Competing interests)", height=68,
-                           value="Penulis menyatakan tidak ada konflik kepentingan yang "
-                                 "relevan dengan artikel ini.")
-    dana = st.text_area("Sumber dana (Funding sources)", height=68,
-                        value="Tidak berlaku / Not applicable.")
-    ucapan = st.text_area("Ucapan terima kasih (Acknowledgements)", height=68,
-                          value="Penulis berterima kasih kepada Laboratorium Biologi Laut "
-                                "FPIK UNSRAT.")
+    st.caption(L("Tujuh pernyataan akhir wajib, urutan FAS sudah ditetapkan template. "
+                 "Bila tidak relevan tulis 'Tidak berlaku / Not applicable'.",
+                 "Seven closing statements are mandatory; FAS order is fixed by the template. "
+                 "If not applicable, write 'Not applicable'."))
+    konflik = st.text_area(
+        L("Konflik kepentingan (Competing interests)", "Competing interests"), height=68,
+        value=L("Penulis menyatakan tidak ada konflik kepentingan yang relevan dengan "
+                "artikel ini.",
+                "The authors declare no competing interests relevant to this article."))
+    dana = st.text_area(L("Sumber dana (Funding sources)", "Funding sources"), height=68,
+                        value=L("Tidak berlaku / Not applicable.", "Not applicable."))
+    ucapan = st.text_area(
+        L("Ucapan terima kasih (Acknowledgements)", "Acknowledgements"), height=68,
+        value=L("Penulis berterima kasih kepada Laboratorium Biologi Laut FPIK UNSRAT.",
+                "The authors thank the Marine Biology Laboratory, FPIK UNSRAT."))
     if is_blind:
-        st.caption("🔒 Otomatis disembunyikan pada versi Blind Review.")
-    kontribusi = st.text_area("Kontribusi penulis (CRediT)", height=68,
-                              value="FSIM: conceptualization, methodology; "
-                                    "ABR: formal analysis; JLT: supervision.")
-    data_avail = st.text_area("Ketersediaan data", height=68,
-                              value="Dataset tersedia dari penulis korespondensi berdasarkan "
-                                    "permintaan yang wajar.")
-    etik = st.text_area("Persetujuan etik", height=68, value="Tidak berlaku / Not applicable.")
-    st.caption("ℹ️ ORCID diisi pada kolom ORCID di tabel penulis (tab Identitas & Judul).")
-    daftar_pustaka = st.text_area("Daftar Pustaka (APA 7, satu entri per baris, min. 20)",
-                                  height=200,
-                                  value="Rondonuwu, A. B., Kepel, R. C., & Tombokan, J. L. (2025). "
-                                        "Diversity and biogeography of goby. Fisheries and Aquatic "
-                                        "Sciences, 28(10), 667–676. "
-                                        "https://doi.org/10.47853/FAS.2025.e56\n"
-                                        "Nei, M., & Kumar, S. (2000). Molecular evolution and "
-                                        "phylogenetics. Oxford University Press.")
+        st.caption(L("🔒 Otomatis disembunyikan pada versi Blind Review.",
+                     "🔒 Automatically hidden in the Blind Review version."))
+    kontribusi = st.text_area(
+        L("Kontribusi penulis (CRediT)", "Authors’ contributions (CRediT)"), height=68,
+        value="FSIM: conceptualization, methodology; ABR: formal analysis; JLT: supervision.")
+    data_avail = st.text_area(
+        L("Ketersediaan data", "Availability of data and materials"), height=68,
+        value=L("Dataset tersedia dari penulis korespondensi berdasarkan permintaan "
+                "yang wajar.",
+                "The dataset is available from the corresponding author on reasonable request."))
+    etik = st.text_area(
+        L("Persetujuan etik", "Ethics approval and consent to participate"), height=68,
+        value=L("Tidak berlaku / Not applicable.", "Not applicable."))
+    st.caption(L("ℹ️ ORCID diisi pada kolom ORCID di tabel penulis (tab Identitas & Judul).",
+                 "ℹ️ ORCID is entered in the ORCID column of the author table (Title & Authors)."))
+    daftar_pustaka = st.text_area(
+        L("Daftar Pustaka (APA 7, satu entri per baris, min. 20)",
+          "References (APA 7, one entry per line, min. 20)"),
+        height=200,
+        value="Rondonuwu, A. B., Kepel, R. C., & Tombokan, J. L. (2025). Diversity and "
+              "biogeography of goby. Fisheries and Aquatic Sciences, 28(10), 667–676. "
+              "https://doi.org/10.47853/FAS.2025.e56\n"
+              "Nei, M., & Kumar, S. (2000). Molecular evolution and phylogenetics. "
+              "Oxford University Press.")
     n_ref = len([r for r in daftar_pustaka.split("\n") if r.strip()])
-    st.caption(f"{n_ref} rujukan" + ("" if n_ref >= 20 else " — minimal 20 disyaratkan."))
+    st.caption(L(f"{n_ref} rujukan" + ("" if n_ref >= 20 else " — minimal 20 disyaratkan."),
+                 f"{n_ref} references" + ("" if n_ref >= 20 else " — at least 20 required.")))
 
 # =========================================================
 # DAFTAR PERIKSA & UNDUH
 # =========================================================
 st.markdown("---")
-st.subheader(f"📥 Unduh Naskah ({versi})")
+st.subheader(L(f"📥 Unduh Naskah ({versi})", f"📥 Download Manuscript ({versi})"))
 
 peringatan = list(catatan_penulis)
 if len(running_title) > 60:
@@ -338,7 +419,8 @@ if not EN and any("." in d for d in _desimal):
     peringatan.append("Naskah Indonesia memakai koma desimal (28,4), "
                       "tetapi isi tabel masih memakai titik.")
 if peringatan:
-    st.warning("Daftar periksa pra-submit:\n\n" + "\n".join(f"- {w}" for w in peringatan))
+    st.warning(L("Daftar periksa pra-submit:", "Pre-submission checklist:")
+               + "\n\n" + "\n".join(f"- {w}" for w in peringatan))
 
 sumber_template = template_path or unggahan_template
 if not sumber_template:
@@ -366,11 +448,11 @@ naskah = Naskah(
 try:
     berkas = bangun(naskah, sumber_template)
     st.download_button(
-        f"📄 Unduh Dokumen ({versi})", data=berkas,
+        L(f"📄 Unduh Dokumen ({versi})", f"📄 Download Document ({versi})"), data=berkas,
         file_name="Naskah_Blind_Review_PLATAX_2026.docx" if is_blind
         else "Naskah_Final_PLATAX_2026.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        use_container_width=True)
+        width="stretch")
 except Exception as e:  # noqa: BLE001
     st.error(f"Gagal menyusun dokumen: {e}")
 
