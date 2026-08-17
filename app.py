@@ -29,20 +29,23 @@ def as_records(tabel):
     return tabel.to_dict("records") if hasattr(tabel, "to_dict") else list(tabel)
 
 
-def susun_penulis(tabel_penulis, daftar_afiliasi):
-    """Ubah tabel input menjadi daftar Penulis + catatan validasi."""
+def susun_penulis(tabel_penulis, daftar_afiliasi, peta=None):
+    """
+    Ubah tabel input menjadi daftar Penulis + catatan validasi.
+
+    `peta` memetakan nomor yang diketik penulis ke nomor rapat 1..n pada
+    `daftar_afiliasi`, sehingga penulis boleh menulis 1 dan 3 tanpa membuat
+    lubang penomoran di naskah.
+    """
     penulis, catatan = [], []
     for baris in as_records(tabel_penulis):
         nama = str(baris.get("Nama", "") or "").strip()
         if not nama:
             continue
-        nomor = [int(x) for x in re.findall(r"\d+", str(baris.get("Afiliasi") or ""))]
-        if not nomor:
+        mentah = [int(x) for x in re.findall(r"\d+", str(baris.get("Afiliasi") or ""))]
+        if not mentah:
             catatan.append(f"Penulis “{nama}” belum diberi nomor afiliasi.")
-        di_luar = [x for x in nomor if not (1 <= x <= len(daftar_afiliasi))]
-        if di_luar:
-            catatan.append(f"Penulis “{nama}” merujuk afiliasi {di_luar}, "
-                           f"padahal hanya ada {len(daftar_afiliasi)} baris afiliasi.")
+        nomor = [peta.get(x, x) if peta else x for x in mentah]
         penulis.append(Penulis(
             nama=nama,
             afil=[x for x in nomor if 1 <= x <= len(daftar_afiliasi)],
@@ -58,10 +61,9 @@ def susun_penulis(tabel_penulis, daftar_afiliasi):
     elif n_koresp > 1:
         catatan.append("Lebih dari satu penulis korespondensi ditandai.")
 
-    terpakai = {x for p in penulis for x in p.afil}
-    nganggur = [i for i in range(1, len(daftar_afiliasi) + 1) if i not in terpakai]
-    if nganggur:
-        catatan.append(f"Baris afiliasi {nganggur} tidak dirujuk penulis mana pun.")
+    for i, teks in enumerate(daftar_afiliasi, 1):
+        if not teks.strip():
+            catatan.append(f"Kotak Afiliasi {i} masih kosong.")
     return penulis, catatan
 
 
@@ -119,24 +121,9 @@ with tab1:
         st.info("ℹ️ Mode Blind Review aktif: data di bawah tetap boleh diisi, tetapi tidak "
                 "dimunculkan dalam berkas Word. Gunakan untuk menyusun Title Page terpisah.")
 
-    afiliasi_teks = st.text_area(
-        "Daftar afiliasi — satu baris per afiliasi UNIK "
-        "(Departemen, Fakultas, Universitas, Kota, Kode Pos, Negara)",
-        height=110,
-        value=("Program Studi Ilmu Kelautan, Fakultas Perikanan dan Ilmu Kelautan, "
-               "Universitas Sam Ratulangi, Manado, 95115, Indonesia\n"
-               "Program Studi Manajemen Sumberdaya Perairan, Fakultas Perikanan dan Ilmu "
-               "Kelautan, Universitas Sam Ratulangi, Manado, 95115, Indonesia"),
-        help="Penulis satu institusi memakai baris yang sama. Jangan menulis nomor di sini — "
-             "nomor diberikan otomatis sesuai urutan baris.")
-    daftar_afiliasi = [a.strip() for a in afiliasi_teks.split("\n") if a.strip()]
-    if daftar_afiliasi:
-        st.caption("Nomor afiliasi: " + " · ".join(
-            f"**{i}** = {a[:45]}{'…' if len(a) > 45 else ''}"
-            for i, a in enumerate(daftar_afiliasi, 1)))
-
-    st.markdown("**Daftar penulis** — isi nomor afiliasi sesuai daftar di atas. "
-                "Penulis dengan dua afiliasi ditulis `1,2`.")
+    st.markdown("**1. Daftar penulis** — kolom *No. afiliasi* cukup diisi angka urut "
+                "(1, 2, 3 …). Penulis dengan dua afiliasi ditulis `1,2`. Kotak isian "
+                "afiliasinya muncul otomatis di bawah.")
     tabel_penulis = st.data_editor(
         [
             {"Nama": "Febry S. I. Menajang", "Afiliasi": "1", "Korespondensi": True,
@@ -156,11 +143,45 @@ with tab1:
             "ORCID": st.column_config.TextColumn("ORCID iD", width="medium"),
         })
 
-    penulis_list, catatan_penulis = susun_penulis(tabel_penulis, daftar_afiliasi)
+    # Nomor afiliasi yang benar-benar dirujuk penulis menentukan jumlah kotak isian
+    nomor_dirujuk = sorted({
+        int(x)
+        for baris in as_records(tabel_penulis)
+        if str(baris.get("Nama", "") or "").strip()
+        for x in re.findall(r"\d+", str(baris.get("Afiliasi") or ""))
+    })
+
+    st.markdown("**2. Afiliasi** — satu kotak per nomor yang dirujuk di atas. "
+                "Penulis se-institusi cukup memakai nomor yang sama.")
+    CONTOH_AFILIASI = [
+        "Program Studi Ilmu Kelautan, Fakultas Perikanan dan Ilmu Kelautan, "
+        "Universitas Sam Ratulangi, Manado, 95115, Indonesia",
+        "Program Studi Manajemen Sumberdaya Perairan, Fakultas Perikanan dan Ilmu Kelautan, "
+        "Universitas Sam Ratulangi, Manado, 95115, Indonesia",
+    ]
+    if not nomor_dirujuk:
+        st.caption("Belum ada nomor afiliasi pada tabel penulis.")
+        daftar_afiliasi = []
+    else:
+        if nomor_dirujuk != list(range(1, len(nomor_dirujuk) + 1)):
+            st.warning(f"Nomor afiliasi sebaiknya berurutan mulai dari 1. "
+                       f"Saat ini terpakai: {nomor_dirujuk}.")
+        isian = {}
+        for nomor in nomor_dirujuk:
+            contoh = CONTOH_AFILIASI[nomor - 1] if nomor <= len(CONTOH_AFILIASI) else ""
+            isian[nomor] = st.text_area(
+                f"Afiliasi {nomor}  (Departemen, Fakultas, Universitas, Kota, Kode Pos, Negara)",
+                value=contoh, height=68, key=f"afiliasi_{nomor}")
+        # Daftar dipadatkan menjadi 1..n agar penomoran pada naskah selalu rapat
+        peta = {lama: baru for baru, lama in enumerate(nomor_dirujuk, 1)}
+        daftar_afiliasi = [isian[lama].strip() for lama in nomor_dirujuk]
+
+    penulis_list, catatan_penulis = susun_penulis(tabel_penulis, daftar_afiliasi,
+                                                  peta=peta if nomor_dirujuk else None)
     for c in catatan_penulis:
         st.warning(c)
     if penulis_list:
-        st.caption("Pratinjau: " + ", ".join(
+        st.caption("Pratinjau baris penulis: " + ", ".join(
             p.nama + ("^" + ",".join(map(str, p.afil)) if p.afil else "")
             + ("*" if p.koresp else "") for p in penulis_list))
 
