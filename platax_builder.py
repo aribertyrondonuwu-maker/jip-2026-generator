@@ -81,6 +81,7 @@ class Naskah:
     etik: str = ""
     daftar_pustaka: str = ""
 
+    bahasa: str = "id"      # "id" = naskah berbahasa Indonesia, "en" = Inggris
     blind: bool = True
 
 
@@ -281,6 +282,39 @@ def isi_tabel(tabel, data_teks: str) -> None:
 # =========================================================
 # HEADER, FOOTER, CATATAN KAKI
 # =========================================================
+# =========================================================
+# ALIH BAHASA JUDUL BAGIAN (naskah berbahasa Inggris)
+# =========================================================
+JUDUL_EN = {
+    "1. Pendahuluan": "1. Introduction",
+    "2. Bahan dan Metode": "2. Materials and Methods",
+    "2.1. Waktu dan lokasi penelitian": "2.1. Study period and location",
+    "2.2. Pengumpulan data": "2.2. Data collection",
+    "2.2.1. Analisis laboratorium": "2.2.1. Laboratory analysis",
+    "2.3. Analisis data": "2.3. Data analysis",
+    "3. Hasil": "3. Results",
+    "4. Pembahasan": "4. Discussion",
+    "5. Simpulan": "5. Conclusions",
+    "Konflik kepentingan (Competing interests)": "Competing interests",
+    "Sumber dana (Funding sources)": "Funding sources",
+    "Ucapan terima kasih (Acknowledgements)": "Acknowledgements",
+    "Kontribusi penulis (Authors’ contributions)": "Authors’ contributions",
+    "Ketersediaan data (Availability of data and materials)":
+        "Availability of data and materials",
+    "Persetujuan etik (Ethics approval and consent to participate)":
+        "Ethics approval and consent to participate",
+    "Daftar Pustaka": "References",
+}
+
+
+def alih_bahasa_judul(doc) -> None:
+    """Ganti judul bagian berbahasa Indonesia menjadi Inggris (naskah EN)."""
+    for p in doc.paragraphs:
+        teks = p.text.strip()
+        if teks in JUDUL_EN:
+            isi_run_pertama(p, JUDUL_EN[teks])
+
+
 def isi_header_footer(doc, n: Naskah) -> None:
     penulis_pertama = (n.penulis[0].nama if (n.penulis and not n.blind) else "[Penulis]")
     koresp = next((p for p in n.penulis if p.koresp), None)
@@ -329,7 +363,8 @@ def bangun(n: Naskah, path_template: str) -> io.BytesIO:
     tulis(paragraf(doc, "[Judul penelitian dalam bahasa Indonesia"), [(n.judul_id, None)])
     tulis(paragraf(doc, "[Complete Research Title in English"), [(n.judul_en, None)])
     p = paragraf(doc, "Judul singkat (running title)")
-    tulis(p, [("Judul singkat (running title): ", None), (n.running_title, None)])
+    label_rt = "Running title: " if n.bahasa == "en" else "Judul singkat (running title): "
+    tulis(p, [(label_rt, None), (n.running_title, None)])
 
     # ---- Penulis dan afiliasi
     p_pen = paragraf(doc, "[Nama Penulis 1]")
@@ -398,19 +433,34 @@ def bangun(n: Naskah, path_template: str) -> io.BytesIO:
     isi_blok(doc, "[Maksimal 150 kata", n.bab5)
 
     # ---- Tabel 1
-    isi_run_pertama(paragraf(doc, "Tabel 1."), n.cap_tabel_id, idx=1)
-    isi_run_pertama(paragraf(doc, "Table 1."), n.cap_tabel_en, idx=1)
+    if n.bahasa == "en":
+        # Naskah Inggris: keterangan Inggris jadi baris utama, baris terjemahan dihapus
+        hapus_paragraf(paragraf(doc, "Table 1."))
+        p_tab = paragraf(doc, "Tabel 1.")
+        isi_run_pertama(p_tab, "Table 1. ", idx=0)
+        isi_run_pertama(p_tab, n.cap_tabel_en, idx=1)
+    else:
+        isi_run_pertama(paragraf(doc, "Tabel 1."), n.cap_tabel_id, idx=1)
+        isi_run_pertama(paragraf(doc, "Table 1."), n.cap_tabel_en, idx=1)
     if n.tabel_data.strip():
         isi_tabel(doc.tables[4], n.tabel_data)
-    isi_run_pertama(paragraf(doc, "Keterangan:"), n.cat_tabel)
+    p_cat = paragraf(doc, "Keterangan:")
+    isi_run_pertama(p_cat, ("Note: " + n.cat_tabel.lstrip()
+                            if n.bahasa == "en" else n.cat_tabel))
 
     # ---- Gambar 1
     p_gbr = paragraf(doc, "[Sisipkan gambar di sini")
     if n.gambar_blob:
         tulis(p_gbr, [("", None)])
         p_gbr.runs[0].add_picture(io.BytesIO(n.gambar_blob), width=Cm(n.lebar_gambar))
-    isi_run_pertama(paragraf(doc, "Gambar 1."), n.cap_gambar_id, idx=1)
-    isi_run_pertama(paragraf(doc, "Figure 1."), n.cap_gambar_en, idx=1)
+    if n.bahasa == "en":
+        hapus_paragraf(paragraf(doc, "Figure 1."))
+        p_fig = paragraf(doc, "Gambar 1.")
+        isi_run_pertama(p_fig, "Figure 1. ", idx=0)
+        isi_run_pertama(p_fig, n.cap_gambar_en, idx=1)
+    else:
+        isi_run_pertama(paragraf(doc, "Gambar 1."), n.cap_gambar_id, idx=1)
+        isi_run_pertama(paragraf(doc, "Figure 1."), n.cap_gambar_en, idx=1)
 
     # ---- Tujuh pernyataan akhir (urutan FAS sudah ada di template)
     isi_blok(doc, "Penulis menyatakan tidak ada konflik", n.konflik)
@@ -431,6 +481,9 @@ def bangun(n: Naskah, path_template: str) -> io.BytesIO:
     # ---- Daftar pustaka
     hapus_paragraf(paragraf(doc, "[APA 7th Edition"))
     isi_blok(doc, "Rondonuwu, A. B., Kepel", n.daftar_pustaka, jumlah_placeholder=2)
+
+    if n.bahasa == "en":
+        alih_bahasa_judul(doc)
 
     isi_header_footer(doc, n)
 

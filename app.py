@@ -71,6 +71,21 @@ def susun_penulis(tabel_penulis, daftar_afiliasi, peta=None):
 # SIDEBAR
 # =========================================================
 st.sidebar.header("⚙️ Pengaturan")
+bahasa_label = st.sidebar.selectbox(
+    "🌐 Bahasa naskah / Manuscript language:",
+    ["Bahasa Indonesia", "English"], index=0,
+    help="Menentukan bahasa judul bagian pada dokumen Word. Judul, abstrak, dan kata "
+         "kunci tetap wajib dwibahasa apa pun pilihannya.")
+BAHASA = "en" if bahasa_label == "English" else "id"
+EN = BAHASA == "en"
+st.sidebar.caption(
+    "Naskah Inggris: judul bagian menjadi Introduction, Results, References, dan seterusnya; "
+    "baris terjemahan pada keterangan tabel/gambar dihapus (Petunjuk §1)."
+    if EN else
+    "Naskah Indonesia: keterangan tabel dan gambar wajib disertai terjemahan Inggris "
+    "pada baris kedua (Petunjuk §1).")
+st.sidebar.markdown("---")
+
 versi = st.sidebar.radio("Versi dokumen keluaran:",
                          ["Blind Review", "Final (Lengkap)"], index=0,
                          help="Blind Review untuk pengiriman awal; "
@@ -233,6 +248,9 @@ with tab3:
 with tab5:
     st.caption("Keterangan tabel di ATAS tabel, keterangan gambar di BAWAH gambar, "
                "masing-masing wajib disertai terjemahan Inggris pada baris kedua.")
+    if EN:
+        st.caption("Naskah berbahasa Inggris: hanya keterangan Inggris yang dipakai; "
+                   "kolom Indonesia boleh dikosongkan.")
     cap_tabel_id = st.text_input("Keterangan Tabel 1 (Indonesia)",
                                  "Parameter kualitas air pada dua stasiun pengamatan.")
     cap_tabel_en = st.text_input("Table 1 caption (English)",
@@ -305,6 +323,13 @@ if n_ref < 20:
     peringatan.append("Daftar pustaka kurang dari 20 rujukan.")
 if len(judul_id.split()) > 20 or len(judul_en.split()) > 20:
     peringatan.append("Judul melebihi 20 kata.")
+_desimal = re.findall(r"\d[.,]\d", tabel_data)
+if EN and any("," in d for d in _desimal):
+    peringatan.append("Naskah Inggris memakai titik desimal (28.4), "
+                      "tetapi isi tabel masih memakai koma.")
+if not EN and any("." in d for d in _desimal):
+    peringatan.append("Naskah Indonesia memakai koma desimal (28,4), "
+                      "tetapi isi tabel masih memakai titik.")
 if peringatan:
     st.warning("Daftar periksa pra-submit:\n\n" + "\n".join(f"- {w}" for w in peringatan))
 
@@ -328,7 +353,7 @@ naskah = Naskah(
     cap_gambar_id=cap_gambar_id, cap_gambar_en=cap_gambar_en,
     konflik=konflik, dana=dana, ucapan=ucapan, kontribusi=kontribusi,
     data_avail=data_avail, etik=etik, daftar_pustaka=daftar_pustaka,
-    blind=is_blind,
+    bahasa=BAHASA, blind=is_blind,
 )
 
 try:
