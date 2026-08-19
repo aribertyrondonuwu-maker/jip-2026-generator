@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import io
 import re
 from typing import List, Dict, Any, Union
@@ -15,33 +14,63 @@ class Penulis:
         self.is_corresp = is_corresp
         self.email = email
         self.orcid = orcid
-        # Menyimpan parameter tambahan apapun dari app.py agar tidak TypeError
         for key, value in kwargs.items():
             setattr(self, key, value)
 
 
-@dataclass
 class Naskah:
-    judul_id: str = ""
-    judul_en: str = ""
-    penulis_list: List[Union[Penulis, Dict[str, Any]]] = field(default_factory=list)
-    afiliasi_list: List[str] = field(default_factory=list)
-    email_korespondensi: str = ""
-    abstrak_id: str = ""
-    abstrak_en: str = ""
-    kata_kunci_id: str = ""
-    kata_kunci_en: str = ""
-    pendahuluan: str = ""
-    metode: str = ""
-    hasil_pembahasan: str = ""
-    kesimpulan: str = ""
-    ucapan_terima_kasih: str = ""
-    daftar_pustaka: str = ""
-    bahasa: str = "id"
-    tabel_list: List[Dict[str, Any]] = field(default_factory=list)
-    gambar_list: List[Dict[str, Any]] = field(default_factory=list)
-    tbl_1: Dict[str, Any] = field(default_factory=dict)
-    gbr_1: Dict[str, Any] = field(default_factory=dict)
+    def __init__(
+        self,
+        judul_id: str = "",
+        judul_en: str = "",
+        running_title: str = "",
+        penulis_list: List[Union[Penulis, Dict[str, Any]]] = None,
+        afiliasi_list: List[str] = None,
+        email_korespondensi: str = "",
+        abstrak_id: str = "",
+        abstrak_en: str = "",
+        kata_kunci_id: str = "",
+        kata_kunci_en: str = "",
+        pendahuluan: str = "",
+        metode: str = "",
+        hasil_pembahasan: str = "",
+        kesimpulan: str = "",
+        ucapan_terima_kasih: str = "",
+        daftar_pustaka: str = "",
+        bahasa: str = "id",
+        blind: bool = False,
+        tabel_list: List[Dict[str, Any]] = None,
+        gambar_list: List[Dict[str, Any]] = None,
+        tbl_1: Dict[str, Any] = None,
+        gbr_1: Dict[str, Any] = None,
+        **kwargs
+    ):
+        self.judul_id = judul_id
+        self.judul_en = judul_en
+        self.running_title = running_title
+        self.penulis_list = penulis_list if penulis_list is not None else []
+        self.afiliasi_list = afiliasi_list if afiliasi_list is not None else []
+        self.email_korespondensi = email_korespondensi
+        self.abstrak_id = abstrak_id
+        self.abstrak_en = abstrak_en
+        self.kata_kunci_id = kata_kunci_id
+        self.kata_kunci_en = kata_kunci_en
+        self.pendahuluan = pendahuluan
+        self.metode = metode
+        self.hasil_pembahasan = hasil_pembahasan
+        self.kesimpulan = kesimpulan
+        self.ucapan_terima_kasih = ucapan_terima_kasih
+        self.daftar_pustaka = daftar_pustaka
+        self.bahasa = bahasa
+        self.blind = blind
+        self.tabel_list = tabel_list if tabel_list is not None else []
+        self.gambar_list = gambar_list if gambar_list is not None else []
+        self.tbl_1 = tbl_1 if tbl_1 is not None else {}
+        self.gbr_1 = gbr_1 if gbr_1 is not None else {}
+
+        # Menampung argumen opsional/tambahan lainnya
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 def bangun(naskah: Naskah) -> io.BytesIO:
@@ -75,7 +104,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
     r_hdr.font.color.rgb = RGBColor(128, 128, 128)
 
     # --- Judul Naskah ---
-    if naskah.judul_id:
+    if getattr(naskah, "judul_id", ""):
         p_title_id = doc.add_paragraph()
         p_title_id.alignment = WD_ALIGN_PARAGRAPH.CENTER
         format_paragraph(p_title_id, space_before=12, space_after=6)
@@ -83,7 +112,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         r.bold = True
         r.font.size = Pt(14)
 
-    if naskah.judul_en:
+    if getattr(naskah, "judul_en", ""):
         p_title_en = doc.add_paragraph()
         p_title_en.alignment = WD_ALIGN_PARAGRAPH.CENTER
         format_paragraph(p_title_en, space_before=0, space_after=12)
@@ -92,57 +121,59 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         r.bold = True
         r.font.size = Pt(12)
 
-    # --- Penulis & Afiliasi ---
-    if naskah.penulis_list:
-        p_auth = doc.add_paragraph()
-        p_auth.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        format_paragraph(p_auth, space_before=6, space_after=4)
-        
-        for idx, p in enumerate(naskah.penulis_list):
-            if isinstance(p, Penulis):
-                nama = getattr(p, "nama", "")
-                aff_ids = getattr(p, "afiliasi_ids", [1])
-                is_corresp = getattr(p, "is_corresp", False)
-            elif isinstance(p, dict):
-                nama = p.get("nama", "")
-                aff_ids = p.get("afiliasi_ids", [1])
-                is_corresp = p.get("is_corresp", False)
-            else:
-                continue
+    # Jika peninjauan blind (is_blind=True), sembunyikan identitas penulis
+    if not getattr(naskah, "blind", False):
+        # --- Penulis & Afiliasi ---
+        if getattr(naskah, "penulis_list", None):
+            p_auth = doc.add_paragraph()
+            p_auth.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            format_paragraph(p_auth, space_before=6, space_after=4)
             
-            aff_str = ",".join(str(a) for a in aff_ids)
-            if is_corresp:
-                aff_str += "*"
+            for idx, p in enumerate(naskah.penulis_list):
+                if isinstance(p, Penulis):
+                    nama = getattr(p, "nama", "")
+                    aff_ids = getattr(p, "afiliasi_ids", [1])
+                    is_corresp = getattr(p, "is_corresp", False)
+                elif isinstance(p, dict):
+                    nama = p.get("nama", "")
+                    aff_ids = p.get("afiliasi_ids", [1])
+                    is_corresp = p.get("is_corresp", False)
+                else:
+                    continue
                 
-            p_auth.add_run(nama).bold = True
-            r_aff = p_auth.add_run(f"({aff_str})")
-            r_aff.font.superscript = True
-            
-            if idx < len(naskah.penulis_list) - 1:
-                p_auth.add_run(", ")
+                aff_str = ",".join(str(a) for a in aff_ids)
+                if is_corresp:
+                    aff_str += "*"
+                    
+                p_auth.add_run(nama).bold = True
+                r_aff = p_auth.add_run(f"({aff_str})")
+                r_aff.font.superscript = True
+                
+                if idx < len(naskah.penulis_list) - 1:
+                    p_auth.add_run(", ")
 
-    if naskah.afiliasi_list:
-        for idx, aff in enumerate(naskah.afiliasi_list, start=1):
-            p_aff = doc.add_paragraph()
-            p_aff.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            format_paragraph(p_aff, space_before=0, space_after=2)
-            
-            r_idx = p_aff.add_run(f"{idx} ")
-            r_idx.font.superscript = True
-            r_text = p_aff.add_run(aff)
-            r_text.font.size = Pt(9.5)
-            r_text.font.italic = True
+        if getattr(naskah, "afiliasi_list", None):
+            for idx, aff in enumerate(naskah.afiliasi_list, start=1):
+                p_aff = doc.add_paragraph()
+                p_aff.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                format_paragraph(p_aff, space_before=0, space_after=2)
+                
+                r_idx = p_aff.add_run(f"{idx} ")
+                r_idx.font.superscript = True
+                r_text = p_aff.add_run(aff)
+                r_text.font.size = Pt(9.5)
+                r_text.font.italic = True
 
-    if naskah.email_korespondensi:
-        p_email = doc.add_paragraph()
-        p_email.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        format_paragraph(p_email, space_before=2, space_after=16)
-        r_email = p_email.add_run(f"*Email Korespondensi: {naskah.email_korespondensi}")
-        r_email.font.size = Pt(9)
-        r_email.font.italic = True
+        if getattr(naskah, "email_korespondensi", ""):
+            p_email = doc.add_paragraph()
+            p_email.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            format_paragraph(p_email, space_before=2, space_after=16)
+            r_email = p_email.add_run(f"*Email Korespondensi: {naskah.email_korespondensi}")
+            r_email.font.size = Pt(9)
+            r_email.font.italic = True
 
     # --- Abstrak Bahasa Indonesia ---
-    if naskah.abstrak_id:
+    if getattr(naskah, "abstrak_id", ""):
         p_abs_head = doc.add_paragraph()
         format_paragraph(p_abs_head, space_before=6, space_after=2)
         p_abs_head.add_run("ABSTRAK").bold = True
@@ -152,14 +183,14 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         format_paragraph(p_abs, space_before=0, space_after=4)
         p_abs.runs[0].font.size = Pt(10)
 
-        if naskah.kata_kunci_id:
+        if getattr(naskah, "kata_kunci_id", ""):
             p_kw = doc.add_paragraph()
             format_paragraph(p_kw, space_before=0, space_after=12)
             p_kw.add_run("Kata kunci: ").bold = True
             p_kw.add_run(naskah.kata_kunci_id).font.size = Pt(10)
 
     # --- Abstract Bahasa Inggris ---
-    if naskah.abstrak_en:
+    if getattr(naskah, "abstrak_en", ""):
         p_abs_head_en = doc.add_paragraph()
         format_paragraph(p_abs_head_en, space_before=6, space_after=2)
         p_abs_head_en.add_run("ABSTRACT").bold = True
@@ -170,7 +201,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         p_abs_en.runs[0].font.size = Pt(10)
         p_abs_en.runs[0].font.italic = True
 
-        if naskah.kata_kunci_en:
+        if getattr(naskah, "kata_kunci_en", ""):
             p_kw_en = doc.add_paragraph()
             format_paragraph(p_kw_en, space_before=0, space_after=16)
             r_lbl = p_kw_en.add_run("Keywords: ")
@@ -190,9 +221,9 @@ def bangun(naskah: Naskah) -> io.BytesIO:
 
     # --- Bagian Utama ---
     sections = [
-        ("PENDAHULUAN", naskah.pendahuluan),
-        ("METODE PENELITIAN", naskah.metode),
-        ("HASIL DAN PEMBAHASAN", naskah.hasil_pembahasan),
+        ("PENDAHULUAN", getattr(naskah, "pendahuluan", "")),
+        ("METODE PENELITIAN", getattr(naskah, "metode", "")),
+        ("HASIL DAN PEMBAHASAN", getattr(naskah, "hasil_pembahasan", "")),
     ]
 
     for sec_title, sec_content in sections:
@@ -203,7 +234,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
             format_paragraph(p, space_before=0, space_after=6)
 
     # --- Rendering Multi-Tabel ---
-    tabel_items = naskah.tabel_list if naskah.tabel_list else ([naskah.tbl_1] if naskah.tbl_1 else [])
+    tabel_items = getattr(naskah, "tabel_list", []) or ([getattr(naskah, "tbl_1", {})] if getattr(naskah, "tbl_1", None) else [])
     for tbl in tabel_items:
         if not tbl or not tbl.get("data", "").strip():
             continue
@@ -216,7 +247,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         cap_en = tbl.get("cap_en", "")
         
         p_cap.add_run(f"Tabel {num}. {cap_id}").bold = True
-        if naskah.bahasa == "id" and cap_en:
+        if getattr(naskah, "bahasa", "id") == "id" and cap_en:
             p_cap.add_run(f"\nTable {num}. {cap_en}").italic = True
 
         baris_raw = [b.strip() for b in tbl["data"].strip().split("\n") if b.strip()]
@@ -247,7 +278,7 @@ def bangun(naskah: Naskah) -> io.BytesIO:
                 p_cat.runs[0].font.size = Pt(9)
 
     # --- Rendering Multi-Gambar ---
-    gambar_items = naskah.gambar_list if naskah.gambar_list else ([naskah.gbr_1] if naskah.gbr_1 else [])
+    gambar_items = getattr(naskah, "gambar_list", []) or ([getattr(naskah, "gbr_1", {})] if getattr(naskah, "gbr_1", None) else [])
     for gbr in gambar_items:
         if not gbr or not gbr.get("blob"):
             continue
@@ -269,24 +300,24 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         cap_en = gbr.get("cap_en", "")
 
         p_cap.add_run(f"Gambar {num}. {cap_id}").bold = True
-        if naskah.bahasa == "id" and cap_en:
+        if getattr(naskah, "bahasa", "id") == "id" and cap_en:
             p_cap.add_run(f"\nFigure {num}. {cap_en}").italic = True
 
     # --- Kesimpulan & Ucapan Terima Kasih ---
-    if naskah.kesimpulan and naskah.kesimpulan.strip():
+    if getattr(naskah, "kesimpulan", "") and naskah.kesimpulan.strip():
         add_section_heading("KESIMPULAN")
         p_kes = doc.add_paragraph(naskah.kesimpulan)
         p_kes.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         format_paragraph(p_kes, space_before=0, space_after=6)
 
-    if naskah.ucapan_terima_kasih and naskah.ucapan_terima_kasih.strip():
+    if getattr(naskah, "ucapan_terima_kasih", "") and naskah.ucapan_terima_kasih.strip():
         add_section_heading("UCAPAN TERIMA KASIH")
         p_utk = doc.add_paragraph(naskah.ucapan_terima_kasih)
         p_utk.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         format_paragraph(p_utk, space_before=0, space_after=6)
 
     # --- Daftar Pustaka ---
-    if naskah.daftar_pustaka and naskah.daftar_pustaka.strip():
+    if getattr(naskah, "daftar_pustaka", "") and naskah.daftar_pustaka.strip():
         add_section_heading("DAFTAR PUSTAKA")
         for line in naskah.daftar_pustaka.strip().split("\n"):
             if line.strip():
