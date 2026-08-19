@@ -8,13 +8,16 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 
-@dataclass
 class Penulis:
-    nama: str = ""
-    afiliasi_ids: List[int] = field(default_factory=list)
-    is_corresp: bool = False
-    email: str = ""
-    orcid: str = ""
+    def __init__(self, nama: str = "", afiliasi_ids: List[int] = None, is_corresp: bool = False, email: str = "", orcid: str = "", **kwargs):
+        self.nama = nama
+        self.afiliasi_ids = afiliasi_ids if afiliasi_ids is not None else []
+        self.is_corresp = is_corresp
+        self.email = email
+        self.orcid = orcid
+        # Menyimpan parameter tambahan apapun dari app.py agar tidak TypeError
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 @dataclass
@@ -97,9 +100,9 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         
         for idx, p in enumerate(naskah.penulis_list):
             if isinstance(p, Penulis):
-                nama = p.nama
-                aff_ids = p.afiliasi_ids
-                is_corresp = p.is_corresp
+                nama = getattr(p, "nama", "")
+                aff_ids = getattr(p, "afiliasi_ids", [1])
+                is_corresp = getattr(p, "is_corresp", False)
             elif isinstance(p, dict):
                 nama = p.get("nama", "")
                 aff_ids = p.get("afiliasi_ids", [1])
@@ -299,5 +302,5 @@ def bangun(naskah: Naskah) -> io.BytesIO:
     return output
 
 
-# Alias untuk kompatibilitas
+# Alias kompatibilitas
 build_docx = bangun
