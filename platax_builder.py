@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import io
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -9,10 +9,18 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 
 
 @dataclass
+class Penulis:
+    nama: str = ""
+    afiliasi_ids: List[int] = field(default_factory=list)
+    is_corresp: bool = False
+    email: str = ""
+
+
+@dataclass
 class Naskah:
     judul_id: str = ""
     judul_en: str = ""
-    penulis_list: List[Dict[str, Any]] = field(default_factory=list)
+    penulis_list: List[Union[Penulis, Dict[str, Any]]] = field(default_factory=list)
     afiliasi_list: List[str] = field(default_factory=list)
     email_korespondensi: str = ""
     abstrak_id: str = ""
@@ -28,9 +36,11 @@ class Naskah:
     bahasa: str = "id"
     tabel_list: List[Dict[str, Any]] = field(default_factory=list)
     gambar_list: List[Dict[str, Any]] = field(default_factory=list)
+    tbl_1: Dict[str, Any] = field(default_factory=dict)
+    gbr_1: Dict[str, Any] = field(default_factory=dict)
 
 
-def build_docx(naskah: Naskah) -> io.BytesIO:
+def bangun(naskah: Naskah) -> io.BytesIO:
     doc = Document()
 
     # --- Pengaturan Halaman (A4 & Margin 2.5 cm) ---
@@ -85,9 +95,16 @@ def build_docx(naskah: Naskah) -> io.BytesIO:
         format_paragraph(p_auth, space_before=6, space_after=4)
         
         for idx, p in enumerate(naskah.penulis_list):
-            nama = p.get("nama", "")
-            aff_ids = p.get("afiliasi_ids", [1])
-            is_corresp = p.get("is_corresp", False)
+            if isinstance(p, Penulis):
+                nama = p.nama
+                aff_ids = p.afiliasi_ids
+                is_corresp = p.is_corresp
+            elif isinstance(p, dict):
+                nama = p.get("nama", "")
+                aff_ids = p.get("afiliasi_ids", [1])
+                is_corresp = p.get("is_corresp", False)
+            else:
+                continue
             
             aff_str = ",".join(str(a) for a in aff_ids)
             if is_corresp:
@@ -182,74 +199,74 @@ def build_docx(naskah: Naskah) -> io.BytesIO:
             format_paragraph(p, space_before=0, space_after=6)
 
     # --- Rendering Multi-Tabel ---
-    if naskah.tabel_list:
-        for tbl in naskah.tabel_list:
-            if not tbl.get("data", "").strip():
-                continue
+    tabel_items = naskah.tabel_list if naskah.tabel_list else ([naskah.tbl_1] if naskah.tbl_1 else [])
+    for tbl in tabel_items:
+        if not tbl or not tbl.get("data", "").strip():
+            continue
 
-            p_cap = doc.add_paragraph()
-            format_paragraph(p_cap, space_before=8, space_after=2)
-            
-            num = tbl.get("nomor", 1)
-            cap_id = tbl.get("cap_id", "")
-            cap_en = tbl.get("cap_en", "")
-            
-            p_cap.add_run(f"Tabel {num}. {cap_id}").bold = True
-            if naskah.bahasa == "id" and cap_en:
-                p_cap.add_run(f"\nTable {num}. {cap_en}").italic = True
+        p_cap = doc.add_paragraph()
+        format_paragraph(p_cap, space_before=8, space_after=2)
+        
+        num = tbl.get("nomor", 1)
+        cap_id = tbl.get("cap_id", "")
+        cap_en = tbl.get("cap_en", "")
+        
+        p_cap.add_run(f"Tabel {num}. {cap_id}").bold = True
+        if naskah.bahasa == "id" and cap_en:
+            p_cap.add_run(f"\nTable {num}. {cap_en}").italic = True
 
-            baris_raw = [b.strip() for b in tbl["data"].strip().split("\n") if b.strip()]
-            if baris_raw:
-                materi = [re.split(r"[\t;]", b) for b in baris_raw]
-                n_rows = len(materi)
-                n_cols = max(len(r) for r in materi)
+        baris_raw = [b.strip() for b in tbl["data"].strip().split("\n") if b.strip()]
+        if baris_raw:
+            materi = [re.split(r"[\t;]", b) for b in baris_raw]
+            n_rows = len(materi)
+            n_cols = max(len(r) for r in materi)
 
-                table = doc.add_table(rows=n_rows, cols=n_cols)
-                table.alignment = WD_TABLE_ALIGNMENT.CENTER
-                table.style = 'Table Grid'
+            table = doc.add_table(rows=n_rows, cols=n_cols)
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            table.style = 'Table Grid'
 
-                for r_idx, row_data in enumerate(materi):
-                    for c_idx, val in enumerate(row_data):
-                        if c_idx < n_cols:
-                            cell = table.cell(r_idx, c_idx)
-                            cell.text = val.strip()
-                            p_cell = cell.paragraphs[0]
-                            p_cell.paragraph_format.space_before = Pt(2)
-                            p_cell.paragraph_format.space_after = Pt(2)
-                            if r_idx == 0 and p_cell.runs:
-                                p_cell.runs[0].bold = True
+            for r_idx, row_data in enumerate(materi):
+                for c_idx, val in enumerate(row_data):
+                    if c_idx < n_cols:
+                        cell = table.cell(r_idx, c_idx)
+                        cell.text = val.strip()
+                        p_cell = cell.paragraphs[0]
+                        p_cell.paragraph_format.space_before = Pt(2)
+                        p_cell.paragraph_format.space_after = Pt(2)
+                        if r_idx == 0 and p_cell.runs:
+                            p_cell.runs[0].bold = True
 
-            if tbl.get("catatan"):
-                p_cat = doc.add_paragraph(tbl["catatan"])
-                format_paragraph(p_cat, space_before=2, space_after=8)
-                if p_cat.runs:
-                    p_cat.runs[0].font.size = Pt(9)
+        if tbl.get("catatan"):
+            p_cat = doc.add_paragraph(tbl["catatan"])
+            format_paragraph(p_cat, space_before=2, space_after=8)
+            if p_cat.runs:
+                p_cat.runs[0].font.size = Pt(9)
 
     # --- Rendering Multi-Gambar ---
-    if naskah.gambar_list:
-        for gbr in naskah.gambar_list:
-            if not gbr.get("blob"):
-                continue
+    gambar_items = naskah.gambar_list if naskah.gambar_list else ([naskah.gbr_1] if naskah.gbr_1 else [])
+    for gbr in gambar_items:
+        if not gbr or not gbr.get("blob"):
+            continue
 
-            p_img = doc.add_paragraph()
-            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            format_paragraph(p_img, space_before=8, space_after=4)
+        p_img = doc.add_paragraph()
+        p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        format_paragraph(p_img, space_before=8, space_after=4)
 
-            stream = io.BytesIO(gbr["blob"])
-            width_cm = gbr.get("lebar", 12.0)
-            p_img.add_run().add_picture(stream, width=Cm(width_cm))
+        stream = io.BytesIO(gbr["blob"])
+        width_cm = gbr.get("lebar", 12.0)
+        p_img.add_run().add_picture(stream, width=Cm(width_cm))
 
-            p_cap = doc.add_paragraph()
-            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            format_paragraph(p_cap, space_before=2, space_after=8)
+        p_cap = doc.add_paragraph()
+        p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        format_paragraph(p_cap, space_before=2, space_after=8)
 
-            num = gbr.get("nomor", 1)
-            cap_id = gbr.get("cap_id", "")
-            cap_en = gbr.get("cap_en", "")
+        num = gbr.get("nomor", 1)
+        cap_id = gbr.get("cap_id", "")
+        cap_en = gbr.get("cap_en", "")
 
-            p_cap.add_run(f"Gambar {num}. {cap_id}").bold = True
-            if naskah.bahasa == "id" and cap_en:
-                p_cap.add_run(f"\nFigure {num}. {cap_en}").italic = True
+        p_cap.add_run(f"Gambar {num}. {cap_id}").bold = True
+        if naskah.bahasa == "id" and cap_en:
+            p_cap.add_run(f"\nFigure {num}. {cap_en}").italic = True
 
     # --- Kesimpulan & Ucapan Terima Kasih ---
     if naskah.kesimpulan and naskah.kesimpulan.strip():
@@ -279,3 +296,7 @@ def build_docx(naskah: Naskah) -> io.BytesIO:
     doc.save(output)
     output.seek(0)
     return output
+
+
+# Alias untuk kompatibilitas jika ada fungsi build_docx
+build_docx = bangun
