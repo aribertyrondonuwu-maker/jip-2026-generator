@@ -68,12 +68,25 @@ class Naskah:
         self.tbl_1 = tbl_1 if tbl_1 is not None else {}
         self.gbr_1 = gbr_1 if gbr_1 is not None else {}
 
-        # Menampung argumen opsional/tambahan lainnya
         for key, value in kwargs.items():
             setattr(self, key, value)
 
 
-def bangun(naskah: Naskah) -> io.BytesIO:
+def bangun(naskah: Naskah = None, *args, **kwargs) -> io.BytesIO:
+    # Mengantisipasi jika naskah dilewatkan dalam *args
+    if naskah is None and args:
+        naskah = args[0]
+        args = args[1:]
+
+    # Mendeteksi apakah pemanggilan menyertakan status Blind Review (misal: bangun(naskah, True))
+    is_blind = False
+    if args and isinstance(args[0], bool):
+        is_blind = args[0]
+    elif "blind" in kwargs:
+        is_blind = kwargs["blind"]
+    elif hasattr(naskah, "blind"):
+        is_blind = bool(getattr(naskah, "blind", False))
+
     doc = Document()
 
     # --- Pengaturan Halaman (A4 & Margin 2.5 cm) ---
@@ -121,9 +134,8 @@ def bangun(naskah: Naskah) -> io.BytesIO:
         r.bold = True
         r.font.size = Pt(12)
 
-    # Jika peninjauan blind (is_blind=True), sembunyikan identitas penulis
-    if not getattr(naskah, "blind", False):
-        # --- Penulis & Afiliasi ---
+    # --- Penulis & Afiliasi (Hanya ditampilkan jika BUKAN blind review) ---
+    if not is_blind:
         if getattr(naskah, "penulis_list", None):
             p_auth = doc.add_paragraph()
             p_auth.alignment = WD_ALIGN_PARAGRAPH.CENTER
