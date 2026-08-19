@@ -14,6 +14,7 @@ class Penulis:
     afiliasi_ids: List[int] = field(default_factory=list)
     is_corresp: bool = False
     email: str = ""
+    orcid: str = ""
 
 
 @dataclass
@@ -298,5 +299,5 @@ def bangun(naskah: Naskah) -> io.BytesIO:
     return output
 
 
-# Alias untuk kompatibilitas jika ada fungsi build_docx
+# Alias untuk kompatibilitas
 build_docx = bangun
