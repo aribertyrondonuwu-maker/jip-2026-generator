@@ -303,6 +303,9 @@ with tab3:
     st.caption(L(f"Simpulan: {len(bab5.split())} kata",
                  f"Conclusions: {len(bab5.split())} words"))
 
+# =========================================================
+# TAB 5: TABEL & GAMBAR (DINAMIS multi-tabel & multi-gambar)
+# =========================================================
 with tab5:
     st.caption(L("Keterangan tabel di ATAS tabel, keterangan gambar di BAWAH gambar. "
                  "Naskah Indonesia WAJIB menyertakan terjemahan Inggris pada baris kedua.",
@@ -311,41 +314,104 @@ with tab5:
     if EN:
         st.caption("Manuscript language is English: only the English caption is used; "
                    "the Indonesian field may be left blank.")
-    cap_tabel_id = st.text_input(
-        L("Keterangan Tabel 1 (Indonesia)", "Tabel 1 caption (Indonesian — optional)"),
-        "Parameter kualitas air pada dua stasiun pengamatan.")
-    cap_tabel_en = st.text_input(
-        L("Table 1 caption (English)", "Table 1 caption (English)"),
-        "Water quality parameters at two observation stations.")
-    tabel_data = st.text_area(
-        L("Isi tabel — kolom dipisah tab atau titik koma; baris pertama = kepala tabel",
-          "Table content — columns separated by tab or semicolon; first row = header"),
-        height=110,
-        value=L("Parameter;Stasiun 1;Stasiun 2\n"
-                "Suhu (°C);28,4 ± 0,3;29,1 ± 0,5\n"
-                "Salinitas (‰);32,1 ± 0,4;31,8 ± 0,6",
-                "Parameter;Station 1;Station 2\n"
-                "Temperature (°C);28.4 ± 0.3;29.1 ± 0.5\n"
-                "Salinity (‰);32.1 ± 0.4;31.8 ± 0.6"))
-    cat_tabel = st.text_input(
-        L("Keterangan kaki tabel", "Table footnote"),
-        L("Keterangan: nilai merupakan rerata ± simpangan baku.",
-          "values are means ± standard deviation."))
+
+    # -----------------------------------------------------
+    # BAGIAN TABEL
+    # -----------------------------------------------------
+    st.subheader(L("📊 Data Tabel", "📊 Tables"))
+    col_tabel_cnt, _ = st.columns([1, 2])
+    with col_tabel_cnt:
+        n_tabel = st.number_input(
+            L("Jumlah Tabel dalam artikel", "Number of Tables in article"),
+            min_value=0, max_value=20, value=1, step=1, key="n_tabel"
+        )
+
+    daftar_tabel = []
+    for i in range(int(n_tabel)):
+        idx = i + 1
+        with st.expander(L(f"📌 Tabel {idx}", f"📌 Table {idx}"), expanded=(i == 0)):
+            cap_id = st.text_input(
+                L(f"Keterangan Tabel {idx} (Indonesia)", f"Table {idx} caption (Indonesian — optional)"),
+                value="Parameter kualitas air pada dua stasiun pengamatan." if idx == 1 else "",
+                key=f"cap_tabel_id_{i}"
+            )
+            cap_en = st.text_input(
+                L(f"Table {idx} caption (English)", f"Table {idx} caption (English)"),
+                value="Water quality parameters at two observation stations." if idx == 1 else "",
+                key=f"cap_tabel_en_{i}"
+            )
+            t_data = st.text_area(
+                L(f"Isi Tabel {idx} — kolom dipisah tab atau titik koma; baris pertama = kepala tabel",
+                  f"Table {idx} content — columns separated by tab or semicolon; first row = header"),
+                height=110,
+                value=L("Parameter;Stasiun 1;Stasiun 2\n"
+                        "Suhu (°C);28,4 ± 0,3;29,1 ± 0,5\n"
+                        "Salinitas (‰);32,1 ± 0,4;31,8 ± 0,6",
+                        "Parameter;Station 1;Station 2\n"
+                        "Temperature (°C);28.4 ± 0.3;29.1 ± 0.5\n"
+                        "Salinity (‰);32.1 ± 0.4;31.8 ± 0.6") if idx == 1 else "",
+                key=f"tabel_data_{i}"
+            )
+            cat = st.text_input(
+                L(f"Keterangan kaki Tabel {idx}", f"Table {idx} footnote"),
+                value=L("Keterangan: nilai merupakan rerata ± simpangan baku.",
+                        "values are means ± standard deviation.") if idx == 1 else "",
+                key=f"cat_tabel_{i}"
+            )
+            daftar_tabel.append({
+                "nomor": idx,
+                "cap_id": cap_id,
+                "cap_en": cap_en,
+                "data": t_data,
+                "catatan": cat
+            })
+
     st.markdown("---")
-    berkas_gambar = st.file_uploader(
-        L("Unggah Gambar 1 (≥300 dpi; TIFF/PNG/JPEG)",
-          "Upload Figure 1 (≥300 dpi; TIFF/PNG/JPEG)"),
-        type=["png", "jpg", "jpeg", "tif", "tiff"])
-    cap_gambar_id = st.text_input(
-        L("Keterangan Gambar 1 (Indonesia)", "Gambar 1 caption (Indonesian — optional)"),
-        "Peta lokasi penelitian di Muara Sungai Tondano.")
-    cap_gambar_en = st.text_input(
-        L("Figure 1 caption (English)", "Figure 1 caption (English)"),
-        "Map of the study site at the Tondano River Estuary.")
-    lebar_gambar = st.slider(
-        L("Lebar gambar (cm) — maks. 7,6 cm untuk satu kolom",
-          "Figure width (cm) — max. 7.6 cm for a single column"),
-        4.0, 7.6, 7.6, 0.2)
+
+    # -----------------------------------------------------
+    # BAGIAN GAMBAR
+    # -----------------------------------------------------
+    st.subheader(L("🖼️ Data Gambar", "🖼️ Figures"))
+    col_gambar_cnt, _ = st.columns([1, 2])
+    with col_gambar_cnt:
+        n_gambar = st.number_input(
+            L("Jumlah Gambar dalam artikel", "Number of Figures in article"),
+            min_value=0, max_value=20, value=1, step=1, key="n_gambar"
+        )
+
+    daftar_gambar = []
+    for j in range(int(n_gambar)):
+        idx = j + 1
+        with st.expander(L(f"🖼️ Gambar {idx}", f"Figure {idx}"), expanded=(j == 0)):
+            berkas = st.file_uploader(
+                L(f"Unggah Gambar {idx} (≥300 dpi; TIFF/PNG/JPEG)",
+                  f"Upload Figure {idx} (≥300 dpi; TIFF/PNG/JPEG)"),
+                type=["png", "jpg", "jpeg", "tif", "tiff"],
+                key=f"berkas_gambar_{j}"
+            )
+            cap_g_id = st.text_input(
+                L(f"Keterangan Gambar {idx} (Indonesia)", f"Figure {idx} caption (Indonesian — optional)"),
+                value="Peta lokasi penelitian di Muara Sungai Tondano." if idx == 1 else "",
+                key=f"cap_gambar_id_{j}"
+            )
+            cap_g_en = st.text_input(
+                L(f"Figure {idx} caption (English)", f"Figure {idx} caption (English)"),
+                value="Map of the study site at the Tondano River Estuary." if idx == 1 else "",
+                key=f"cap_gambar_en_{j}"
+            )
+            lebar = st.slider(
+                L(f"Lebar Gambar {idx} (cm) — maks. 7,6 cm untuk satu kolom",
+                  f"Figure {idx} width (cm) — max. 7.6 cm for a single column"),
+                4.0, 7.6, 7.6, 0.2,
+                key=f"lebar_gambar_{j}"
+            )
+            daftar_gambar.append({
+                "nomor": idx,
+                "blob": berkas.getvalue() if berkas else b"",
+                "cap_id": cap_g_id,
+                "cap_en": cap_g_en,
+                "lebar": lebar
+            })
 
 with tab4:
     st.caption(L("Tujuh pernyataan akhir wajib, urutan FAS sudah ditetapkan template. "
@@ -411,13 +477,18 @@ if n_ref < 20:
     peringatan.append("Daftar pustaka kurang dari 20 rujukan.")
 if len(judul_id.split()) > 20 or len(judul_en.split()) > 20:
     peringatan.append("Judul melebihi 20 kata.")
-_desimal = re.findall(r"\d[.,]\d", tabel_data)
-if EN and any("," in d for d in _desimal):
-    peringatan.append("Naskah Inggris memakai titik desimal (28.4), "
-                      "tetapi isi tabel masih memakai koma.")
-if not EN and any("." in d for d in _desimal):
-    peringatan.append("Naskah Indonesia memakai koma desimal (28,4), "
-                      "tetapi isi tabel masih memakai titik.")
+
+# Validasi koma/titik desimal pada seluruh tabel
+for t in daftar_tabel:
+    if t["data"].strip():
+        _desimal = re.findall(r"\d[.,]\d", t["data"])
+        if EN and any("," in d for d in _desimal):
+            peringatan.append(f"Tabel {t['nomor']}: Naskah Inggris memakai titik desimal (28.4), "
+                              "tetapi isi tabel masih memakai koma.")
+        if not EN and any("." in d for d in _desimal):
+            peringatan.append(f"Tabel {t['nomor']}: Naskah Indonesia memakai koma desimal (28,4), "
+                              "tetapi isi tabel masih memakai titik.")
+
 if peringatan:
     st.warning(L("Daftar periksa pra-submit:", "Pre-submission checklist:")
                + "\n\n" + "\n".join(f"- {w}" for w in peringatan))
@@ -427,6 +498,10 @@ if not sumber_template:
     st.error("Template resmi belum tersedia. Unggah berkas template pada panel kiri.")
     st.stop()
 
+# Menyiapkan variabel fallback tunggal untuk kompatibilitas mundur jika platax_builder masih versi lama
+tbl_1 = daftar_tabel[0] if daftar_tabel else {"cap_id": "", "cap_en": "", "data": "", "catatan": ""}
+gbr_1 = daftar_gambar[0] if daftar_gambar else {"cap_id": "", "cap_en": "", "blob": b"", "lebar": 7.6}
+
 naskah = Naskah(
     judul_id=judul_id, judul_en=judul_en, running_title=running_title,
     penulis=penulis_list, afiliasi=daftar_afiliasi, telepon=telepon, email=email,
@@ -435,11 +510,14 @@ naskah = Naskah(
     bab1=bab1, metode_21=metode_21, metode_22=metode_22,
     metode_221=metode_221, metode_23=metode_23,
     bab3=bab3, bab4=bab4, bab5=bab5,
-    cap_tabel_id=cap_tabel_id, cap_tabel_en=cap_tabel_en,
-    tabel_data=tabel_data, cat_tabel=cat_tabel,
-    gambar_blob=berkas_gambar.getvalue() if berkas_gambar else b"",
-    lebar_gambar=lebar_gambar,
-    cap_gambar_id=cap_gambar_id, cap_gambar_en=cap_gambar_en,
+    # Parameter lama (kompatibilitas mundur)
+    cap_tabel_id=tbl_1["cap_id"], cap_tabel_en=tbl_1["cap_en"],
+    tabel_data=tbl_1["data"], cat_tabel=tbl_1["catatan"],
+    gambar_blob=gbr_1["blob"], lebar_gambar=gbr_1["lebar"],
+    cap_gambar_id=gbr_1["cap_id"], cap_gambar_en=gbr_1["cap_en"],
+    # Parameter baru (multi tabel & multi gambar)
+    tabel_list=daftar_tabel,
+    gambar_list=daftar_gambar,
     konflik=konflik, dana=dana, ucapan=ucapan, kontribusi=kontribusi,
     data_avail=data_avail, etik=etik, daftar_pustaka=daftar_pustaka,
     bahasa=BAHASA, blind=is_blind,
