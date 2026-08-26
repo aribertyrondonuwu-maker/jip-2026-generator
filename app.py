@@ -204,10 +204,12 @@ with tab0:
             "Afiliasi (huruf: a, b, ...)": "a",
             "Korespondensi ★": p.is_corresp if hasattr(p, "is_corresp") else False,
             "ORCID iD": p.orcid if hasattr(p, "orcid") else "",
+            "Email": p.email if hasattr(p, "email") else "",
         })
     if not _tp_init_rows:
         _tp_init_rows = [{"Nama": "", "Afiliasi (huruf: a, b, ...)": "a",
-                          "Korespondensi ★": True, "ORCID iD": "0000-0000-0000-0000"}]
+                          "Korespondensi ★": True, "ORCID iD": "0000-0000-0000-0000",
+                          "Email": ""}]
 
     tp_tabel_penulis = st.data_editor(
         _tp_init_rows,
@@ -341,6 +343,7 @@ with tab0:
                 "aff":        str(b.get("Afiliasi (huruf: a, b, ...)", "")).strip(),
                 "is_corresp": bool(b.get("Korespondensi ★", False)),
                 "orcid":      str(b.get("ORCID iD", "")).strip() or "—",
+                "email":      str(b.get("Email", "")).strip() or "—",
             }
             for b in as_records(tp_tabel_penulis)
             if str(b.get("Nama", "")).strip()
