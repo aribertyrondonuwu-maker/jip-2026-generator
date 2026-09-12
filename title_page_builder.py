@@ -1,13 +1,18 @@
 """
 title_page_builder.py — Generator Halaman Judul (Title Page) JIP 2026
-Mengisi Template_Title_Page_JIP_2026.docx dengan data dari form Streamlit.
-Template final: 5 kolom tabel (No, Nama, Aff, ORCID, Email)
+Template final v4:
+  - Tabel penulis: 4 kolom (No | Nama | Aff | ORCID iD)
+  - Seksi 4: CRediT + ORCID per penulis (dua blok terpisah)
+  - Seksi 5: Konflik Kepentingan
+  - Seksi 6: Sumber Dana
+  - Seksi 7: Ucapan Terima Kasih
 """
 
 import io
 import copy
 from pathlib import Path
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.shared import Pt, RGBColor
 from docx.oxml.ns import qn
 
@@ -23,11 +28,10 @@ CREDIT_ROLES = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FUNGSI BANTU
+# HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _all_paragraphs(doc):
-    """Iterasi semua paragraf: body + dalam tabel."""
+def _all_paras(doc):
     for p in doc.paragraphs:
         yield p
     for tbl in doc.tables:
@@ -37,71 +41,71 @@ def _all_paragraphs(doc):
                     yield p
 
 
-def _find(doc, *keywords):
-    """Paragraf pertama yang mengandung salah satu keyword."""
-    for p in _all_paragraphs(doc):
-        if any(kw in p.text for kw in keywords):
+def _find(doc, *kws):
+    for p in _all_paras(doc):
+        if any(k in p.text for k in kws):
             return p
     return None
 
 
-def _find_all(doc, *keywords):
-    """Semua paragraf yang mengandung salah satu keyword."""
-    result = []
-    for p in _all_paragraphs(doc):
-        if any(kw in p.text for kw in keywords):
-            result.append(p)
-    return result
-
-
-def _set_run(run, text, bold=None, italic=None, color=None, size=None):
-    """Set properti run tanpa mengubah run lain."""
-    run.text = text
-    if bold is not None:
-        run.font.bold = bold
-    if italic is not None:
-        run.font.italic = italic
-    if color is not None:
-        run.font.color.rgb = RGBColor(*color)
-    if size is not None:
-        run.font.size = Pt(size)
-
-
 def _fill2(para, label, value):
-    """
-    Isi paragraf dengan 2 run: run[0]=label (bold), run[1]=value (italic).
-    Mempertahankan format asli dari template.
-    """
     runs = para.runs
     if len(runs) >= 2:
         runs[0].text = label
         runs[1].text = value
-        # Hapus run berlebih
         for r in runs[2:]:
             r._r.getparent().remove(r._r)
     elif len(runs) == 1:
         runs[0].text = value
     else:
-        r = para.add_run(value)
-        r.font.italic = True
+        r = para.add_run(value); r.font.italic = True
 
 
 def _fill1(para, value):
-    """
-    Isi paragraf dengan 1 run (italic), pertahankan format asli.
-    """
     runs = para.runs
     if runs:
         runs[0].text = value
         for r in runs[1:]:
             r._r.getparent().remove(r._r)
     else:
-        r = para.add_run(value)
-        r.font.italic = True
+        r = para.add_run(value); r.font.italic = True
+
+
+def _make_bold_italic_p(ref_p_elem, label, value):
+    """
+    Buat elemen <w:p> baru (format disalin dari ref_p_elem):
+    run[0] = label (bold), run[1] = value (italic).
+    """
+    new_p = copy.deepcopy(ref_p_elem)
+    # Hapus semua run lama
+    for r in new_p.findall(qn('w:r')):
+        new_p.remove(r)
+
+    def _run(text, bold=False, italic=False):
+        r = OxmlElement('w:r')
+        rpr = OxmlElement('w:rPr')
+        if bold:
+            rpr.append(OxmlElement('w:b'))
+        if italic:
+            rpr.append(OxmlElement('w:i'))
+        r.append(rpr)
+        t = OxmlElement('w:t')
+        t.text = text
+        t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+        r.append(t)
+        return r
+
+    if label:
+        new_p.append(_run(label, bold=True))
+    new_p.append(_run(value, italic=True))
+    return new_p
+
+
+def _insert_after(ref_p_elem, new_p_elem):
+    ref_p_elem.addnext(new_p_elem)
 
 
 def _set_cell(cell, text, bold=False, italic=False, color="555555"):
-    """Isi cell tabel dengan teks + format."""
     para = cell.paragraphs[0]
     for run in list(para.runs):
         run._r.getparent().remove(run._r)
@@ -115,9 +119,7 @@ def _set_cell(cell, text, bold=False, italic=False, color="555555"):
 
 
 def _clone_row(tr):
-    """Duplikat baris tabel (struktur XML)."""
     new_tr = copy.deepcopy(tr)
-    # Kosongkan semua teks
     for tc in new_tr.findall(qn('w:tc')):
         for p_el in tc.findall(qn('w:p')):
             for r_el in p_el.findall(qn('w:r')):
@@ -132,160 +134,145 @@ def _clone_row(tr):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def bangun_title_page(data: dict, template_path: str = TEMPLATE_TITLE_PAGE) -> bytes:
-    """
-    Isi template Title Page dengan data dari form.
-
-    data = {
-        ojs_id          : str
-        judul_id        : str
-        judul_en        : str
-        running_title   : str
-        penulis         : list[{nama, aff, is_corresp, orcid, email}]
-        afiliasi        : dict {"a": "...", "b": "..."}
-        koresp_nama     : str
-        koresp_afiliasi : str
-        koresp_alamat   : str
-        koresp_telepon  : str
-        koresp_email    : str
-        koresp_orcid    : str
-        kontribusi      : dict {nama: "roles..."}
-        ucapan          : str
-        pendanaan       : str
-        konflik         : str
-    }
-    """
     if not Path(template_path).exists():
         raise FileNotFoundError(f"Template tidak ditemukan: {template_path}")
 
     doc = Document(template_path)
+    penulis_list = data.get("penulis", [])
 
     # ── 0. ID NASKAH OJS ────────────────────────────────────────────────────
     p = _find(doc, "ID Naskah OJS:")
-    if p:
-        _fill2(p, "ID Naskah OJS: ", data.get("ojs_id", ""))
+    if p: _fill2(p, "ID Naskah OJS: ", data.get("ojs_id", ""))
 
     # ── 1. JUDUL ─────────────────────────────────────────────────────────────
     p = _find(doc, "Judul (Bahasa Indonesia):")
-    if p:
-        _fill2(p, "Judul (Bahasa Indonesia): ", data.get("judul_id", ""))
-
+    if p: _fill2(p, "Judul (Bahasa Indonesia): ", data.get("judul_id", ""))
     p = _find(doc, "Title (English):")
-    if p:
-        _fill2(p, "Title (English): ", data.get("judul_en", ""))
-
+    if p: _fill2(p, "Title (English): ", data.get("judul_en", ""))
     p = _find(doc, "Judul Singkat / Running Title:")
-    if p:
-        _fill2(p, "Judul Singkat / Running Title: ", data.get("running_title", ""))
+    if p: _fill2(p, "Judul Singkat / Running Title: ", data.get("running_title", ""))
 
-    # ── 2. TABEL PENULIS (5 kolom: No | Nama | Aff | ORCID | Email) ─────────
-    penulis_list = data.get("penulis", [])
+    # ── 2. TABEL PENULIS (4 kolom) ───────────────────────────────────────────
     if penulis_list:
-        # Cari tabel dengan header "No." & "Email"
-        target_tbl = None
-        for tbl in doc.tables:
-            header = [c.text.strip() for c in tbl.rows[0].cells]
-            if "No." in header and "Email" in header:
-                target_tbl = tbl
-                break
-
-        if target_tbl is not None:
-            # Hapus semua baris data (baris 1 dst)
-            while len(target_tbl.rows) > 1:
-                tr = target_tbl.rows[-1]._tr
-                tr.getparent().remove(tr)
-
-            # Tambah baris baru tiap penulis
-            template_tr = target_tbl.rows[0]._tr  # pakai header sebagai template klon
-            for i, p_data in enumerate(penulis_list, 1):
-                new_tr = _clone_row(template_tr)
-                target_tbl._tbl.append(new_tr)
-                row = target_tbl.rows[-1]
-                cells = row.cells
-
-                nama        = p_data.get("nama", "")
-                aff         = p_data.get("aff", "")
-                is_corresp  = p_data.get("is_corresp", False)
-                orcid       = p_data.get("orcid", "—") or "—"
-                email       = p_data.get("email", "—") or "—"
-
-                nama_label  = nama + ("  ★" if is_corresp else "")
-                aff_label   = f"({aff})" if aff else "—"
-
-                _set_cell(cells[0], str(i) + ".",  bold=True,  color="007BB8")
-                _set_cell(cells[1], nama_label,    italic=True, color="555555")
-                _set_cell(cells[2], aff_label,     bold=True,  color="007BB8")
-                _set_cell(cells[3], orcid,         italic=True, color="555555")
-                _set_cell(cells[4], email,         italic=True, color="555555")
+        tbl = next((t for t in doc.tables
+                    if any("ORCID" in c.text for c in t.rows[0].cells)), None)
+        if tbl:
+            while len(tbl.rows) > 1:
+                tbl.rows[-1]._tr.getparent().remove(tbl.rows[-1]._tr)
+            tmpl_tr = tbl.rows[0]._tr
+            for i, pd in enumerate(penulis_list, 1):
+                new_tr = _clone_row(tmpl_tr)
+                tbl._tbl.append(new_tr)
+                cells = tbl.rows[-1].cells
+                nama_lbl = pd.get("nama","") + ("  ★" if pd.get("is_corresp") else "")
+                aff_lbl  = f"({pd.get('aff','')})" if pd.get("aff") else "—"
+                _set_cell(cells[0], str(i)+".",    bold=True,   color="007BB8")
+                _set_cell(cells[1], nama_lbl,      italic=True, color="555555")
+                _set_cell(cells[2], aff_lbl,       bold=True,   color="007BB8")
+                _set_cell(cells[3], pd.get("orcid","—") or "—", italic=True, color="555555")
 
     # ── KETERANGAN AFILIASI ───────────────────────────────────────────────────
-    afiliasi = data.get("afiliasi", {})
-    for huruf, teks in afiliasi.items():
+    for huruf, teks in data.get("afiliasi", {}).items():
         label = f"({huruf})"
         for p in doc.paragraphs:
             if p.text.strip().startswith(label):
                 runs = p.runs
-                if len(runs) >= 2:
-                    runs[1].text = teks
-                elif runs:
-                    runs[0].text = f"{label} {teks}"
+                if len(runs) >= 2: runs[1].text = teks
+                elif runs: runs[0].text = f"{label} {teks}"
                 break
 
     # ── 3. PENULIS KORESPONDENSI ─────────────────────────────────────────────
-    fields = {
-        "Nama Lengkap / Full Name: ":   data.get("koresp_nama", ""),
-        "Afiliasi / Affiliation: ":     data.get("koresp_afiliasi", ""),
-        "Alamat / Address: ":           data.get("koresp_alamat", ""),
-        "Telepon / Phone: ":            data.get("koresp_telepon", ""),
-        "E-mail: ":                     data.get("koresp_email", ""),
-        "ORCID iD: ":                   data.get("koresp_orcid", ""),
-    }
-    for label, value in fields.items():
+    for label, key in [
+        ("Nama Lengkap / Full Name: ",  "koresp_nama"),
+        ("Afiliasi / Affiliation: ",    "koresp_afiliasi"),
+        ("Alamat / Address: ",          "koresp_alamat"),
+        ("Telepon / Phone: ",           "koresp_telepon"),
+        ("E-mail: ",                    "koresp_email"),
+        ("ORCID iD: ",                  "koresp_orcid"),
+    ]:
         p = _find(doc, label.strip())
-        if p:
-            _fill2(p, label, value)
+        if p: _fill2(p, label, data.get(key, ""))
 
-    # ── 4. KONTRIBUSI PENULIS (CRediT) ───────────────────────────────────────
+    # ── 4. CRediT + ORCID per penulis ────────────────────────────────────────
+    #
+    # Cari 4 anchor di doc.paragraphs:
+    #   A = paragraf instruksi "Nyatakan kontribusi..."          [30]
+    #   B = paragraf "Peran CRediT / Available Roles:"           [34]
+    #   C = paragraf pertama baris ORCID contoh (setelah B)      [35]
+    #   D = paragraf spasi " " setelah baris ORCID terakhir      [38]
+    #
+    # Langkah:
+    #  1. Hapus baris CRediT contoh (antara A+1 dan B-1)
+    #  2. Sisipkan baris CRediT baru setelah A
+    #  3. Hapus baris ORCID contoh (antara B+1 dan D-1)
+    #  4. Sisipkan baris ORCID baru setelah B
+
     kontribusi = data.get("kontribusi", {})
-    for nama, roles in kontribusi.items():
-        if not roles:
-            continue
-        for p in _all_paragraphs(doc):
-            txt = p.text.strip()
-            if txt.startswith(nama + ":") or txt.startswith(nama + " :"):
-                runs = p.runs
-                if len(runs) >= 2:
-                    runs[0].text = nama + ": "
-                    runs[1].text = roles
-                    for r in runs[2:]:
-                        r._r.getparent().remove(r._r)
-                elif runs:
-                    runs[0].text = f"{nama}: {roles}"
-                break
+    paras = doc.paragraphs
 
-    # ── 5. UCAPAN TERIMA KASIH ───────────────────────────────────────────────
-    p = _find(doc, "Penulis mengucapkan terima kasih",
-              "The authors thank the Bunaken")
-    if p:
-        _fill1(p, data.get("ucapan", ""))
+    idx_A = next((i for i,p in enumerate(paras) if "Nyatakan kontribusi" in p.text), None)
+    idx_B = next((i for i,p in enumerate(paras) if "Peran CRediT / Available Roles" in p.text), None)
+    idx_D = next((i for i,p in enumerate(paras)
+                  if i > (idx_B or 0) and p.text.strip() == ""), None)
 
-    # ── 6. PERNYATAAN PENDANAAN ───────────────────────────────────────────────
-    # Baris pendanaan aktual = paragraf yang berisi "Direktorat Riset"
-    p = _find(doc, "Penelitian ini didanai oleh Direktorat",
-              "This study was funded by the Directorate")
-    if p:
-        _fill1(p, data.get("pendanaan", ""))
+    if idx_A is not None and idx_B is not None:
+        # 1. Hapus baris CRediT contoh
+        credit_contoh = list(paras[idx_A+1 : idx_B])
+        for p in credit_contoh:
+            p._p.getparent().remove(p._p)
 
-    # ── 7. KONFLIK KEPENTINGAN ────────────────────────────────────────────────
-    # Ada dua paragraf yang mengandung teks konflik:
-    # [45] = di dalam kotak contoh "Tanpa konflik / No conflict: ..."
-    # [47] = paragraf aktual yang harus diisi
-    # Ambil yang TERAKHIR
-    matches = _find_all(doc, "Para penulis menyatakan tidak ada konflik",
-                        "The authors declare no conflict")
-    if matches:
-        _fill1(matches[-1], data.get("konflik", ""))
+        # 2. Sisipkan baris CRediT baru (urutan normal: gunakan addnext secara terbalik)
+        paras2  = doc.paragraphs
+        p_A     = next(p for p in paras2 if "Nyatakan kontribusi" in p.text)
+        ref_p   = p_A._p
+        for nama, roles in reversed(list(kontribusi.items())):
+            new_elem = _make_bold_italic_p(ref_p, nama + ": ", roles)
+            _insert_after(ref_p, new_elem)
 
-    # ── Simpan ────────────────────────────────────────────────────────────────
+        # 3. Hapus baris ORCID contoh
+        paras3  = doc.paragraphs
+        idx_B3  = next((i for i,p in enumerate(paras3) if "Peran CRediT / Available Roles" in p.text), None)
+        idx_D3  = next((i for i,p in enumerate(paras3)
+                        if i > (idx_B3 or 0) and p.text.strip() == ""), None)
+        if idx_B3 is not None:
+            end3 = idx_D3 if idx_D3 else len(paras3)
+            orcid_contoh = list(paras3[idx_B3+1 : end3])
+            for p in orcid_contoh:
+                p._p.getparent().remove(p._p)
+
+        # 4. Sisipkan baris ORCID baru
+        paras4 = doc.paragraphs
+        p_B4   = next((p for p in paras4 if "Peran CRediT / Available Roles" in p.text), None)
+        if p_B4:
+            ref_p4 = p_B4._p
+            for pd in reversed(penulis_list):
+                new_elem4 = _make_bold_italic_p(ref_p4, pd.get("nama","") + ": ",
+                                                 pd.get("orcid","—") or "—")
+                _insert_after(ref_p4, new_elem4)
+
+    # ── 5. KONFLIK KEPENTINGAN ────────────────────────────────────────────────
+    # Template hanya berisi baris contoh (Tanpa konflik / Ada konflik).
+    # Sisipkan satu paragraf aktif di bawah baris "Ada konflik..." lalu hapus
+    # baris contoh agar dokumen rapi — ATAU cukup sisipkan saja.
+    # Keputusan: sisipkan 1 paragraf aktif setelah "Ada konflik / Conflict exists:"
+    konflik_val = data.get("konflik", "")
+    p_ada = _find(doc, "Ada konflik / Conflict exists:")
+    if p_ada and konflik_val:
+        new_konflik = _make_bold_italic_p(p_ada._p, "", konflik_val)
+        _insert_after(p_ada._p, new_konflik)
+
+    # ── 6. SUMBER DANA ────────────────────────────────────────────────────────
+    p_dana = _find(doc, "Penelitian ini didanai oleh Direktorat",
+                   "This study was funded by the Directorate")
+    if p_dana:
+        _fill1(p_dana, data.get("pendanaan", ""))
+
+    # ── 7. UCAPAN TERIMA KASIH ───────────────────────────────────────────────
+    p_ucapan = _find(doc, "Penulis mengucapkan terima kasih kepada [pihak",
+                     "The authors thank [parties")
+    if p_ucapan:
+        _fill1(p_ucapan, data.get("ucapan", ""))
+
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
