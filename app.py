@@ -204,12 +204,10 @@ with tab0:
             "Afiliasi (huruf: a, b, ...)": "a",
             "Korespondensi ★": p.is_corresp if hasattr(p, "is_corresp") else False,
             "ORCID iD": p.orcid if hasattr(p, "orcid") else "",
-            "Email": p.email if hasattr(p, "email") else "",
         })
     if not _tp_init_rows:
         _tp_init_rows = [{"Nama": "", "Afiliasi (huruf: a, b, ...)": "a",
-                          "Korespondensi ★": True, "ORCID iD": "0000-0000-0000-0000",
-                          "Email": ""}]
+                          "Korespondensi ★": True, "ORCID iD": "0000-0000-0000-0000"}]
 
     tp_tabel_penulis = st.data_editor(
         _tp_init_rows,
@@ -291,10 +289,22 @@ with tab0:
             tp_kontribusi[nama_p] = ", ".join(all_roles) if all_roles else ""
 
     st.markdown("---")
-    st.subheader("5. Ucapan Terima Kasih / Acknowledgements")
-    tp_ucapan = st.text_area("Ucapan terima kasih", value=ucapan, height=80, key="tp_ucapan")
+    st.subheader("5. Konflik Kepentingan / Conflict of Interest")
+    tp_konflik_mode = st.radio(
+        "Status konflik:",
+        ["Tidak ada konflik / No conflict", "Ada konflik / Conflict exists"],
+        horizontal=True, key="tp_konflik_mode"
+    )
+    if tp_konflik_mode == "Tidak ada konflik / No conflict":
+        tp_konflik = ("Para penulis menyatakan tidak ada konflik kepentingan yang relevan "
+                      "dengan artikel ini. / The authors declare no conflict of interest "
+                      "relevant to this article.")
+        st.info(tp_konflik)
+    else:
+        tp_konflik = st.text_area("Uraikan konflik kepentingan", value="", height=80,
+                                   key="tp_konflik_custom")
 
-    st.subheader("6. Pernyataan Pendanaan / Funding Statement")
+    st.subheader("6. Sumber Dana / Funding Sources")
     tp_pendanaan_mode = st.radio(
         "Jenis pendanaan:",
         ["Hibah / Grant-funded", "Dana mandiri / Self-funded", "Kustom / Custom"],
@@ -312,23 +322,12 @@ with tab0:
             f"This study was funded by {_nama_lembaga} under contract number {_nomor_kontrak}."
         )
     else:
-        tp_pendanaan = st.text_area("Pernyataan pendanaan", value="", height=80,
+        tp_pendanaan = st.text_area("Pernyataan pendanaan kustom", value="", height=80,
                                     key="tp_pendanaan_custom")
 
-    st.subheader("7. Konflik Kepentingan / Conflict of Interest")
-    tp_konflik_mode = st.radio(
-        "Status konflik:",
-        ["Tidak ada konflik / No conflict", "Ada konflik / Conflict exists"],
-        horizontal=True, key="tp_konflik_mode"
-    )
-    if tp_konflik_mode == "Tidak ada konflik / No conflict":
-        tp_konflik = ("Para penulis menyatakan tidak ada konflik kepentingan yang relevan "
-                      "dengan artikel ini. / The authors declare no conflict of interest "
-                      "relevant to this article.")
-        st.info(tp_konflik)
-    else:
-        tp_konflik = st.text_area("Uraikan konflik kepentingan", value="", height=80,
-                                   key="tp_konflik_custom")
+    st.subheader("7. Ucapan Terima Kasih / Acknowledgements")
+    st.caption("Hapus isian ini jika tidak ada ucapan terima kasih — tulis: Tidak berlaku / Not applicable.")
+    tp_ucapan = st.text_area("Ucapan terima kasih", value=ucapan, height=80, key="tp_ucapan")
 
     # ── Tombol Download Title Page ────────────────────────────────────────────
     st.markdown("---")
@@ -343,7 +342,6 @@ with tab0:
                 "aff":        str(b.get("Afiliasi (huruf: a, b, ...)", "")).strip(),
                 "is_corresp": bool(b.get("Korespondensi ★", False)),
                 "orcid":      str(b.get("ORCID iD", "")).strip() or "—",
-                "email":      str(b.get("Email", "")).strip() or "—",
             }
             for b in as_records(tp_tabel_penulis)
             if str(b.get("Nama", "")).strip()
@@ -363,9 +361,9 @@ with tab0:
             "koresp_email":    tp_koresp_email,
             "koresp_orcid":    tp_koresp_orcid,
             "kontribusi":      tp_kontribusi,
-            "ucapan":          tp_ucapan,
-            "pendanaan":       tp_pendanaan,
             "konflik":         tp_konflik,
+            "pendanaan":       tp_pendanaan,
+            "ucapan":          tp_ucapan,
         }
 
         try:
