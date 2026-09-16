@@ -52,6 +52,7 @@ if "authors" not in st.session_state:
     st.session_state.authors = [
         {
             "nama": "Febry S. I. Menajang",
+            "singkatan": "F.S.I. Menajang",
             "afiliasi": "a",
             "email": "",
             "korespondensi": True,
@@ -72,6 +73,7 @@ def add_author():
     st.session_state.authors.append(
         {
             "nama": "",
+            "singkatan": "",
             "afiliasi": label,
             "email": "",
             "korespondensi": False,
@@ -86,6 +88,18 @@ def add_author():
 def remove_author(idx):
     if len(st.session_state.authors) > 1:
         st.session_state.authors.pop(idx)
+
+
+def auto_singkatan(nama: str) -> str:
+    """'Febry S. I. Menajang' → 'F.S.I. Menajang'"""
+    parts = [p for p in nama.strip().split() if p]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    surname = parts[-1]
+    initials = "".join(p[0].upper() + "." for p in parts[:-1])
+    return f"{initials} {surname}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -153,30 +167,72 @@ st.markdown("---")
 st.markdown("### 4. Kontribusi Penulis / Author Contributions (CRediT)")
 st.caption("Pilih peran untuk setiap penulis.")
 
-for i, author in enumerate(st.session_state.authors):                                  # ← FIX 2
-    nama_display = author["nama"].strip() if author["nama"].strip() else f"Penulis {i + 1}"
-    icon = "📄"
+for i, author in enumerate(st.session_state.authors):
+    nama_full    = author["nama"].strip() if author["nama"].strip() else f"Penulis {i + 1}"
+    # Auto-generate singkatan if empty
+    if not author.get("singkatan"):
+        author["singkatan"] = auto_singkatan(author["nama"])
+    singkatan_val = author["singkatan"]
 
-    with st.expander(f"{icon}  {nama_display}", expanded=True):
-        # 3-column grid of checkboxes
-        role_cols = st.columns(3)
+    # Expander label: nomor · nama lengkap · (singkatan)
+    label = f"📄  {nama_full}"
+    if singkatan_val:
+        label += f"  —  {singkatan_val}"
+
+    with st.expander(label, expanded=True):
+
+        # ── Singkatan nama (editable) ───────────────────────────────────────
+        c_singkat, c_hapus = st.columns([10, 1])
+        author["singkatan"] = c_singkat.text_input(
+            "Singkatan Nama / Abbreviated Name",
+            value=singkatan_val,
+            key=f"singkatan_{i}",
+            placeholder="misal: F.S.I. Menajang",
+            help="Nama singkat yang akan muncul pada pernyataan kontribusi, "
+                 "misal: F.S.I. Menajang · Menajang FSI · Menajang et al.",
+        )
+        # Hapus penulis dari dalam expander
+        if c_hapus.button("🗑️", key=f"del_credit_{i}", help="Hapus penulis ini"):
+            remove_author(i)
+            st.rerun()
+
+        st.markdown("---")
+
+        # ── CRediT checkboxes (3 kolom) ────────────────────────────────────
+        role_cols   = st.columns(3)
         checked_roles = []
-
         for j, role in enumerate(CREDIT_ROLES):
-            col = role_cols[j % 3]
+            col     = role_cols[j % 3]
             current = role in author.get("contrib_roles", [])
             if col.checkbox(role, value=current, key=f"role_{i}_{j}"):
                 checked_roles.append(role)
-
         author["contrib_roles"] = checked_roles
 
-        # Additional contributions
+        # ── Tambahan ───────────────────────────────────────────────────────
         author["contrib_tambahan"] = st.text_input(
-            "Tambahan (pisah koma)",
+            "Tambahan (pisah koma) / Additional roles (comma-separated)",
             value=author.get("contrib_tambahan", ""),
             key=f"tambahan_{i}",
             placeholder="misal: Project administration",
         )
+
+        # ── Pratinjau baris kontribusi ─────────────────────────────────────
+        all_roles = list(author["contrib_roles"])
+        if author.get("contrib_tambahan"):
+            all_roles += [r.strip() for r in author["contrib_tambahan"].split(",") if r.strip()]
+        if all_roles:
+            st.caption(
+                f"**Output:** {author['singkatan'] or nama_full}: "
+                + ", ".join(all_roles) + "."
+            )
+
+# ── Tombol tambah penulis (di dalam section CRediT) ──────────────────────────
+st.button(
+    "＋  Tambah Penulis / Add Author",
+    on_click=add_author,
+    key="add_author_credit",
+    help="Menambahkan baris penulis baru di sini dan di Bagian 2",
+)
 
 st.markdown("---")
 
