@@ -283,9 +283,8 @@ with tab0:
     st.caption("Pilih peran untuk setiap penulis.")
 
     CREDIT_ROLES = get_credit_roles()
-    tp_kontribusi = {}
 
-    # Bangun list penulis + singkatan dari tabel editor
+    # ── Bangun penulis_tp_rows dari tabel editor ──────────────────────────────
     penulis_tp_rows = [
         {
             "nama": str(b.get("Nama", "")).strip(),
@@ -298,60 +297,129 @@ with tab0:
         if str(b.get("Nama", "")).strip()
     ]
 
-    for idx_p, p_row in enumerate(penulis_tp_rows):
-        nama_p      = p_row["nama"]
-        singkatan_p = p_row["singkatan"]
+    # ── Session state: daftar penulis untuk CRediT ───────────────────────────
+    if "tp_credit_list" not in st.session_state:
+        st.session_state.tp_credit_list = []
 
-        # Label expander: nama lengkap — singkatan
-        exp_label = f"📝  {nama_p}"
-        if singkatan_p:
-            exp_label += f"  —  {singkatan_p}"
+    # Auto-merge penulis baru dari tabel Section 2
+    _existing = {e["nama"] for e in st.session_state.tp_credit_list}
+    for _r in penulis_tp_rows:
+        if _r["nama"] and _r["nama"] not in _existing:
+            _n = len(st.session_state.tp_credit_list)
+            st.session_state.tp_credit_list.append({
+                "nama": _r["nama"], "singkatan": _r["singkatan"]
+            })
+            st.session_state.setdefault(f"tp_cn_{_n}", _r["nama"])
+            st.session_state.setdefault(f"tp_sk_{_n}", _r["singkatan"])
+            _existing.add(_r["nama"])
 
-        with st.expander(exp_label, expanded=(idx_p == 0)):
+    if not st.session_state.tp_credit_list:
+        st.session_state.tp_credit_list = [{"nama": "", "singkatan": ""}]
 
-            # ── Singkatan nama (editable) ──────────────────────────────────
-            col_sk, col_del = st.columns([11, 1])
-            singkatan_edit = col_sk.text_input(
-                "Singkatan Nama / Abbreviated Name",
-                value=singkatan_p,
-                key=f"tp_singkatan_{idx_p}",
-                placeholder="misal: F.S.I.M.",
-                help=(
-                    "Inisial semua kata dalam nama + titik. "
-                    "Contoh: 'Febry S. I. Menajang' → 'F.S.I.M.' · "
-                    "'Vera O. I. Kumaat' → 'V.O.I.K.'"
-                ),
+    # ── Callback: tambah penulis ──────────────────────────────────────────────
+    def _tp_add():
+        _n = len(st.session_state.tp_credit_list)
+        st.session_state.tp_credit_list.append({"nama": "", "singkatan": ""})
+        st.session_state[f"tp_cn_{_n}"] = ""
+        st.session_state[f"tp_sk_{_n}"] = ""
+
+    # ── Loop: satu expander per penulis ──────────────────────────────────────
+    tp_kontribusi = {}
+    _idx_to_delete = None
+
+    for idx_p, p_entry in enumerate(st.session_state.tp_credit_list):
+        nama_cur = st.session_state.get(f"tp_cn_{idx_p}", p_entry["nama"])
+        sk_cur   = (
+            st.session_state.get(f"tp_sk_{idx_p}")
+            or p_entry.get("singkatan")
+            or auto_singkatan(nama_cur)
+        )
+
+        _lbl = f"📝  {nama_cur.strip() or f'Penulis {idx_p + 1}'}"
+        if sk_cur:
+            _lbl += f"  —  {sk_cur}"
+
+        with st.expander(_lbl, expanded=(idx_p == 0)):
+
+            # Nama lengkap + tombol hapus
+            _c1, _c2 = st.columns([11, 1])
+            _c1.text_input(
+                "Nama Lengkap / Full Name",
+                value=nama_cur,
+                key=f"tp_cn_{idx_p}",
+                placeholder="misal: Febry S. I. Menajang",
             )
-            # Gunakan hasil edit; fallback ke auto
-            singkatan_p = singkatan_edit or auto_singkatan(nama_p)
+            if _c2.button("🗑️", key=f"tp_del_{idx_p}", help="Hapus penulis ini"):
+                _idx_to_delete = idx_p
+
+            # Singkatan
+            st.text_input(
+                "Singkatan Nama / Abbreviated Name",
+                value=sk_cur,
+                key=f"tp_sk_{idx_p}",
+                placeholder="misal: F.S.I.M.",
+                help="Inisial semua kata + titik. Contoh: 'Febry S. I. Menajang' → 'F.S.I.M.'",
+            )
+            sk_now = (
+                st.session_state.get(f"tp_sk_{idx_p}", "")
+                or auto_singkatan(st.session_state.get(f"tp_cn_{idx_p}", ""))
+            )
 
             st.markdown("---")
 
-            # ── CRediT checkboxes (3 kolom) ────────────────────────────────
-            cols_credit = st.columns(3)
+            # Checkboxes CRediT — 3 kolom
+            _cc = st.columns(3)
             selected_roles = []
             for idx_r, role in enumerate(CREDIT_ROLES):
-                col_idx = idx_r % 3
-                if cols_credit[col_idx].checkbox(role, key=f"tp_credit_{idx_p}_{idx_r}"):
+                if _cc[idx_r % 3].checkbox(role, key=f"tp_credit_{idx_p}_{idx_r}"):
                     selected_roles.append(role)
 
-            extra_roles = st.text_input(
+            extra = st.text_input(
                 "Tambahan (pisah koma) / Additional roles",
                 key=f"tp_credit_extra_{idx_p}",
                 placeholder="misal: Project administration",
             )
-            all_roles = selected_roles + [r.strip() for r in extra_roles.split(",") if r.strip()]
+            all_roles = selected_roles + [r.strip() for r in extra.split(",") if r.strip()]
 
-            # Simpan dengan kunci = singkatan (sesuai format dokumen)
-            key_out = singkatan_p or nama_p
-            tp_kontribusi[key_out] = ", ".join(all_roles) if all_roles else ""
+            _key_out = sk_now or st.session_state.get(f"tp_cn_{idx_p}", f"Penulis {idx_p+1}")
+            tp_kontribusi[_key_out] = ", ".join(all_roles) if all_roles else ""
 
-            # ── Pratinjau output ───────────────────────────────────────────
             if all_roles:
                 st.caption(
-                    f"**Output:** {key_out}: "
+                    f"**Output:** {_key_out}: "
                     + ", ".join(r.lower() for r in all_roles) + "."
                 )
+
+    # ── Hapus penulis (setelah loop, hindari modifikasi list saat iterasi) ───
+    if _idx_to_delete is not None and len(st.session_state.tp_credit_list) > 1:
+        _n_old = len(st.session_state.tp_credit_list)
+        _names = [st.session_state.get(f"tp_cn_{j}",
+                  st.session_state.tp_credit_list[j]["nama"]) for j in range(_n_old)]
+        _sks   = [st.session_state.get(f"tp_sk_{j}",
+                  st.session_state.tp_credit_list[j].get("singkatan", "")) for j in range(_n_old)]
+        _names.pop(_idx_to_delete)
+        _sks.pop(_idx_to_delete)
+        # Hapus semua key widget lama
+        for _j in range(_n_old):
+            for _k in ([f"tp_cn_{_j}", f"tp_sk_{_j}", f"tp_credit_extra_{_j}"]
+                       + [f"tp_credit_{_j}_{_r}" for _r in range(len(CREDIT_ROLES))]):
+                st.session_state.pop(_k, None)
+        # Tulis ulang list & key widget
+        st.session_state.tp_credit_list = [
+            {"nama": _nm, "singkatan": _sk} for _nm, _sk in zip(_names, _sks)
+        ]
+        for _j, (_nm, _sk) in enumerate(zip(_names, _sks)):
+            st.session_state[f"tp_cn_{_j}"] = _nm
+            st.session_state[f"tp_sk_{_j}"] = _sk
+        st.rerun()
+
+    # ── Tombol ＋ Tambah Penulis ──────────────────────────────────────────────
+    st.button(
+        "＋  Tambah Penulis / Add Author",
+        on_click=_tp_add,
+        key="tp_credit_add_btn",
+    )
+
 
     st.markdown("---")
     st.subheader("5. Ucapan Terima Kasih / Acknowledgements")
