@@ -5,6 +5,7 @@ Versi lengkap dengan Tab Halaman Judul (Title Page)
 
 import os
 import re
+import datetime
 import streamlit as st
 from platax_builder import Naskah, Penulis, bangun
 from title_page_builder import bangun_title_page, get_credit_roles
@@ -59,6 +60,15 @@ EN = BAHASA == "en"
 def L(teks_id: str, teks_en: str) -> str:
     return teks_en if EN else teks_id
 
+_TAHUN = datetime.date.today().year
+
+def buat_nama_file(judul_singkat: str, tipe: str) -> str:
+    """Format: (judul singkat)_(tipe)_(tahun).docx — karakter tidak aman dibersihkan."""
+    judul_bersih = re.sub(r'[\\/:*?"<>|]', '', judul_singkat).strip()
+    if not judul_bersih:
+        judul_bersih = "Naskah"
+    return f"{judul_bersih}_{tipe}_{_TAHUN}.docx"
+
 def auto_singkatan(nama: str) -> str:
     """'Febry S. I. Menajang' → 'F.S.I.M.'  (inisial semua kata + titik)"""
     parts = [p.strip(".") for p in nama.strip().split() if p.strip(".")]
@@ -101,10 +111,7 @@ if is_blind:
 else:
     template_aktif = TEMPLATE_EN_FINAL if EN else TEMPLATE_ID_FINAL
 
-if is_blind:
-    nama_file_output = TEMPLATE_EN_BLIND if EN else TEMPLATE_ID_BLIND
-else:
-    nama_file_output = TEMPLATE_EN_FINAL if EN else TEMPLATE_ID_FINAL
+# nama_file_output akan digenerate dinamis di bagian bawah setelah form diisi
 
 template_path = None
 if os.path.exists(template_aktif):
@@ -520,10 +527,11 @@ with tab0:
 
         try:
             _tp_bytes = bangun_title_page(_tp_data, template_path=TEMPLATE_TITLE_PAGE)
+            _nama_tp = buat_nama_file(tp_running or tp_judul_id, "Title Page")
             st.download_button(
-                label="📄 Unduh Title Page — Template_Title_Page_JIP_2026.docx",
+                label=f"📄 Unduh Title Page — {_nama_tp}",
                 data=_tp_bytes,
-                file_name="Template_Title_Page_JIP_2026.docx",
+                file_name=_nama_tp,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
             )
@@ -685,6 +693,13 @@ naskah = Naskah(
 if not template_path:
     st.error(f"❌ Template tidak ditemukan: {template_aktif}. Pastikan file ada di direktori yang sama.")
     st.stop()
+
+# Nama file dinamis: (judul singkat)_(tipe)_(tahun).docx
+_tipe_naskah = (
+    L("Naskah Blind Review", "Manuscript Blind Review") if is_blind
+    else L("Naskah Final", "Final Manuscript")
+)
+nama_file_output = buat_nama_file(running_title or judul_id, _tipe_naskah)
 
 try:
     berkas = bangun(naskah, template_path)
