@@ -66,9 +66,34 @@ def auto_singkatan(nama: str) -> str:
         return ""
     return ".".join(p[0].upper() for p in parts) + "."
 
-versi = st.sidebar.radio("Versi dokumen:", ["Blind Review", "Final (Lengkap)"], index=0)
-is_blind = versi == "Blind Review"
-st.sidebar.info("📌 Blind Review: Identitas disembunyikan otomatis.\nFinal: Lengkap.")
+# ── MODE AKSES: penulis (default) vs redaksi (URL ?mode=redaksi) ─────────────
+_params       = st.query_params
+_mode_redaksi = _params.get("mode", "") == "redaksi"
+
+if _mode_redaksi:
+    # Redaksi: tampilkan pilihan Blind Review ATAU Final
+    st.sidebar.success("🔓 Mode Redaksi (akses internal)")
+    versi    = st.sidebar.radio(
+        "Versi dokumen:",
+        ["Blind Review", "Final (Lengkap)"],
+        index=0,
+    )
+    is_blind = versi == "Blind Review"
+    st.sidebar.info(
+        "**Blind Review** — identitas disembunyikan otomatis.\n\n"
+        "**Final (Lengkap)** — naskah penuh dengan identitas penulis."
+    )
+else:
+    # Penulis (publik): kunci ke Blind Review saja, tanpa pilihan
+    versi    = "Blind Review"
+    is_blind = True
+    st.sidebar.info(
+        "📋 **Generator Penulis**\n\n"
+        "Menghasilkan **naskah Blind Review** sesuai ketentuan "
+        "double-blind peer review PLATAX.\n\n"
+        "Identitas penulis dihapus otomatis."
+    )
+
 st.sidebar.markdown("---")
 
 if is_blind:
@@ -94,7 +119,12 @@ if os.path.exists(TEMPLATE_TITLE_PAGE):
 else:
     st.sidebar.warning(f"⚠️ Template tidak ditemukan: {TEMPLATE_TITLE_PAGE}")
 
+# ── JUDUL HALAMAN ─────────────────────────────────────────────────────────────
 st.title("📄 JIP 2026 Article Auto-Generator")
+if _mode_redaksi:
+    st.caption(f"Mode: **{versi}**  •  Redaksi Jurnal Ilmiah PLATAX")
+else:
+    st.caption("Generator Naskah Blind Review — Jurnal Ilmiah PLATAX")
 
 # ── NAMA HEADING BAB (bilingual) ─────────────────────────────────────────────
 H = {
@@ -203,7 +233,6 @@ with tab0:
     st.markdown("---")
     st.subheader("2. Penulis dan Afiliasi / Authors and Affiliations")
 
-    # Bangun nilai awal dari tab1
     _tp_init_rows = []
     for p in penulis_list:
         _nama = p.nama if hasattr(p, "nama") else ""
@@ -284,7 +313,6 @@ with tab0:
 
     CREDIT_ROLES = get_credit_roles()
 
-    # ── Bangun penulis_tp_rows dari tabel editor ──────────────────────────────
     penulis_tp_rows = [
         {
             "nama": str(b.get("Nama", "")).strip(),
@@ -297,11 +325,9 @@ with tab0:
         if str(b.get("Nama", "")).strip()
     ]
 
-    # ── Session state: daftar penulis untuk CRediT ───────────────────────────
     if "tp_credit_list" not in st.session_state:
         st.session_state.tp_credit_list = []
 
-    # Auto-merge penulis baru dari tabel Section 2
     _existing = {e["nama"] for e in st.session_state.tp_credit_list}
     for _r in penulis_tp_rows:
         if _r["nama"] and _r["nama"] not in _existing:
@@ -316,14 +342,12 @@ with tab0:
     if not st.session_state.tp_credit_list:
         st.session_state.tp_credit_list = [{"nama": "", "singkatan": ""}]
 
-    # ── Callback: tambah penulis ──────────────────────────────────────────────
     def _tp_add():
         _n = len(st.session_state.tp_credit_list)
         st.session_state.tp_credit_list.append({"nama": "", "singkatan": ""})
         st.session_state[f"tp_cn_{_n}"] = ""
         st.session_state[f"tp_sk_{_n}"] = ""
 
-    # ── Loop: satu expander per penulis ──────────────────────────────────────
     tp_kontribusi = {}
     _idx_to_delete = None
 
@@ -340,8 +364,6 @@ with tab0:
             _lbl += f"  —  {sk_cur}"
 
         with st.expander(_lbl, expanded=(idx_p == 0)):
-
-            # Nama lengkap + tombol hapus
             _c1, _c2 = st.columns([11, 1])
             _c1.text_input(
                 "Nama Lengkap / Full Name",
@@ -352,7 +374,6 @@ with tab0:
             if _c2.button("🗑️", key=f"tp_del_{idx_p}", help="Hapus penulis ini"):
                 _idx_to_delete = idx_p
 
-            # Singkatan
             st.text_input(
                 "Singkatan Nama / Abbreviated Name",
                 value=sk_cur,
@@ -367,7 +388,6 @@ with tab0:
 
             st.markdown("---")
 
-            # Checkboxes CRediT — 3 kolom
             _cc = st.columns(3)
             selected_roles = []
             for idx_r, role in enumerate(CREDIT_ROLES):
@@ -390,7 +410,6 @@ with tab0:
                     + ", ".join(r.lower() for r in all_roles) + "."
                 )
 
-    # ── Hapus penulis (setelah loop, hindari modifikasi list saat iterasi) ───
     if _idx_to_delete is not None and len(st.session_state.tp_credit_list) > 1:
         _n_old = len(st.session_state.tp_credit_list)
         _names = [st.session_state.get(f"tp_cn_{j}",
@@ -399,12 +418,10 @@ with tab0:
                   st.session_state.tp_credit_list[j].get("singkatan", "")) for j in range(_n_old)]
         _names.pop(_idx_to_delete)
         _sks.pop(_idx_to_delete)
-        # Hapus semua key widget lama
         for _j in range(_n_old):
             for _k in ([f"tp_cn_{_j}", f"tp_sk_{_j}", f"tp_credit_extra_{_j}"]
                        + [f"tp_credit_{_j}_{_r}" for _r in range(len(CREDIT_ROLES))]):
                 st.session_state.pop(_k, None)
-        # Tulis ulang list & key widget
         st.session_state.tp_credit_list = [
             {"nama": _nm, "singkatan": _sk} for _nm, _sk in zip(_names, _sks)
         ]
@@ -413,13 +430,11 @@ with tab0:
             st.session_state[f"tp_sk_{_j}"] = _sk
         st.rerun()
 
-    # ── Tombol ＋ Tambah Penulis ──────────────────────────────────────────────
     st.button(
         "＋  Tambah Penulis / Add Author",
         on_click=_tp_add,
         key="tp_credit_add_btn",
     )
-
 
     st.markdown("---")
     st.subheader("5. Ucapan Terima Kasih / Acknowledgements")
