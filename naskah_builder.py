@@ -64,6 +64,7 @@ LBL = {
     },
 }
 
+COLW = 5100  # lebar satu kolom (twips)
 UP = "A-ZÀ-ÖØ-Þ"  # huruf kapital (termasuk beraksen)
 
 
@@ -492,16 +493,15 @@ def table_xml(tbl: dict, full: bool) -> str:
          '<w:tblLook w:val="04a0" w:noHBand="0" w:noVBand="1" w:firstColumn="1" w:lastRow="0" w:lastColumn="0" w:firstRow="1"/></w:tblPr>'
          "<w:tblGrid>" + "".join(f'<w:gridCol w:w="{w}"/>' for w in ws) + "</w:tblGrid>")
     nr = len(rows)
+    hdr = 1
+    while hdr < nr and hdr < 4 and any(c["vm"] == "cont" for c in rows[hdr]) and any(c["vm"] == "restart" for c in rows[0]):
+        hdr += 1
+    if nr > 1 and hdr >= nr:
+        hdr = 1
     for ri, r in enumerate(rows):
-        if nr == 1:
-            top, bot = 4, 4
-        elif ri == 0:
-            top, bot = 4, 6
-        elif ri == nr - 1:
-            top, bot = 0, 4
-        else:
-            top, bot = 0, 0
-        x += "<w:tr>" + ("<w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>" if ri == 0 else "<w:trPr><w:cantSplit/></w:trPr>")
+        top = 4 if ri == 0 else 0
+        bot = 4 if ri == nr - 1 else (6 if ri == hdr - 1 else 0)
+        x += "<w:tr>" + ("<w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>" if ri < hdr else "<w:trPr><w:cantSplit/></w:trPr>")
         col = 0
         for c in r:
             w = sum(ws[col:col + c["span"]])
@@ -511,11 +511,47 @@ def table_xml(tbl: dict, full: bool) -> str:
                 vm = '<w:vMerge w:val="restart"/>'
             elif c["vm"] == "cont":
                 vm = "<w:vMerge/>"
-            x += f'<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/>{span}{vm}{bd(top, bot)}</w:tcPr>'
-            x += para(inline(c["c"], {"sz": 15}), before=0, after=0, jc="left" if col == 0 else "center") + "</w:tc>"
+            x += f'<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/>{span}{vm}{bd(top, bot)}<w:vAlign w:val="center"/></w:tcPr>'
+            base = {"sz": 15, "b": True} if ri < hdr else {"sz": 15}
+            first_col = col == 0
+            x += para(inline(c["c"], base), before=0, after=0, jc="left" if first_col and ri >= hdr else "center") + "</w:tc>"
             col += c["span"]
         x += "</w:tr>"
     return x + "</w:tbl>"
+
+
+TARGET_DPI = 600
+MAX_PIXELS = 60_000_000
+
+
+def prep_image(im: dict, width_emu: int):
+    """Naikkan resolusi ke TARGET_DPI pada ukuran cetak (Lanczos) dan tulis metadata dpi. Mengembalikan (b64, ext, w, h)."""
+    try:
+        from PIL import Image
+        raw = base64.b64decode(im["b64"])
+        with Image.open(io.BytesIO(raw)) as src:
+            src.load()
+            w, h = src.size
+            width_in = width_emu / 914400
+            want_w = round(width_in * TARGET_DPI)
+            ext = (im.get("ext") or "png").lower()
+            jpeg = ext in ("jpeg", "jpg")
+            if want_w > w and want_w * round(h * want_w / w) <= MAX_PIXELS:
+                nh = round(h * want_w / w)
+                img = src.convert("RGBA" if (src.mode in ("RGBA", "LA", "P") and not jpeg) else "RGB").resize((want_w, nh), Image.LANCZOS)
+                w, h = want_w, nh
+            else:
+                img = src.convert("RGBA" if (src.mode in ("RGBA", "LA", "P") and not jpeg) else "RGB") if src.mode not in ("RGB", "RGBA", "L") else src.copy()
+            out = io.BytesIO()
+            if jpeg:
+                img.convert("RGB").save(out, "JPEG", quality=95, dpi=(TARGET_DPI, TARGET_DPI), subsampling=0)
+                ext = "jpeg"
+            else:
+                img.save(out, "PNG", dpi=(TARGET_DPI, TARGET_DPI), optimize=True)
+                ext = "png"
+            return base64.b64encode(out.getvalue()).decode(), ext, w, h
+    except Exception:
+        return im["b64"], im.get("ext", "png"), im.get("w"), im.get("h")
 
 
 def drawing_xml(ctx: dict, imgs: list, caption_alt: str, full: bool) -> str:
@@ -526,16 +562,16 @@ def drawing_xml(ctx: dict, imgs: list, caption_alt: str, full: bool) -> str:
     for im in imgs:
         ctx["img_n"] += 1
         k = ctx["img_n"]
-        ext = im.get("ext", "png").lower().replace("jpg", "jpeg")
-        fname = f"media/fig{k}.{'jpg' if ext == 'jpeg' else ext}"
-        rid = f"rIdFig{k}"
-        ctx["media"].append({"rid": rid, "name": fname, "ext": ext, "b64": im["b64"]})
         w, h = im.get("w") or 800, im.get("h") or 600
         wmax = maxw // n if n > 1 else maxw
         cx, cy = wmax, round(wmax * h / w)
         if cy > maxh:
             cy = maxh
             cx = round(maxh * w / h)
+        b64, ext, pw, ph = prep_image(im, cx)
+        fname = f"media/fig{k}.{'jpg' if ext == 'jpeg' else ext}"
+        rid = f"rIdFig{k}"
+        ctx["media"].append({"rid": rid, "name": fname, "ext": ext, "b64": b64})
         did = 100 + k
         out += (f'<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
                 f'<wp:docPr id="{did}" name="Gambar {k}" descr="{esc(caption_alt)}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
@@ -581,11 +617,19 @@ def body_xml(M: dict, L: dict, blind: bool, ctx: dict) -> str:
                 for p in items:
                     if isinstance(p, list) and not any(plain_text([r]).strip() or "math" in r for r in p):
                         continue
-                    is_math = isinstance(p, list) and len(p) == 1 and "math" in p[0] and p[0].get("display")
-                    if is_math:
-                        x += para(inline(p), before=40, after=60, jc="center")
+                    if b.get("center"):
+                        x += para(inline(p, cites=cite, ref_idx=link_idx), before=40, after=80, jc="center")
                     else:
                         x += para(inline(p, cites=cite, ref_idx=link_idx), before=0, after=60, firstLine=0 if b.get("noindent") else 283)
+            elif t == "eq":
+                ms = "".join(b.get("m") or [])
+                if not ms:
+                    continue
+                if b.get("num"):
+                    tabs = f'<w:tabs><w:tab w:val="clear" w:pos="720"/><w:tab w:val="center" w:pos="{COLW // 2}"/><w:tab w:val="right" w:pos="{COLW}"/></w:tabs>'
+                    x += para("<w:r><w:tab/></w:r>" + ms + "<w:r><w:tab/></w:r>" + run(b["num"]), before=60, after=100, tabs=tabs, jc="left")
+                else:
+                    x += para("<m:oMathPara>" + ms + "</m:oMathPara>", before=60, after=100, jc="center")
             elif t in ("h2", "h3"):
                 txt = plain_text(b.get("c", b.get("text", ""))).strip()
                 if not txt:
@@ -822,6 +866,10 @@ def build_manuscript(M: dict, kind: str) -> bytes:
     return _write_package(files, order)
 
 
+def ph(t: str = "Penulis mengisi") -> str:
+    return run(f"[{t}]", {"i": True, "color": "7F7F7F"})
+
+
 def build_title_page(M: dict) -> bytes:
     L = LBL["en" if M.get("lang") == "en" else "id"]
     files, order = _open_template("tp")
@@ -840,10 +888,10 @@ def build_title_page(M: dict) -> bytes:
     def bar(t):
         return para(run(t, {"b": True, "color": "FFFFFF", "sz": 19}), shd=BLUE, keepNext=True, before=140, after=40, left=120, right=120, jc="center")
 
-    def kv(lab, val):
+    def kv(lab, val, phtext="Penulis mengisi"):
         v = (val if isinstance(val, list) else (val or "")).__class__
         txt = plain_text(val).strip() if val is not None else ""
-        return para(run(lab, {"b": True}) + (inline(val) if txt else run("—")), **CENTER)
+        return para(run(lab, {"b": True}) + (inline(val) if txt else ph(phtext)), **CENTER)
 
     def box(val, default):
         v = val if (isinstance(val, list) or (val or "").strip()) else default
@@ -857,40 +905,46 @@ def build_title_page(M: dict) -> bytes:
         return "(" + ",".join(chr(96 + n) for n in arr) + ")"
 
     A = [(i, a) for i, a in enumerate(M["authors"]) if (a.get("name") or "").strip()]
+    if not A:
+        A = [(0, {"name": "", "email": "", "orcid": "", "affs": [], "roles": []})]
     cl = M.get("closing") or {}
-    x = bar("0.  ID NASKAH OJS / OJS SUBMISSION ID") + kv("ID Naskah OJS: ", M.get("ojs_id") or "[PLATAX-2026-XXXX]") + spacer()
+    x = bar("0.  ID NASKAH OJS / OJS SUBMISSION ID") + kv("ID Naskah OJS: ", M.get("ojs_id"), "Penulis mengisi setelah mengunggah naskah utama") + spacer()
     x += bar("1.  JUDUL ARTIKEL / ARTICLE TITLE") + kv("Judul (Bahasa Indonesia): ", M.get("title_id")) + kv("Title (English): ", M.get("title_en")) + kv("Judul Singkat / Running Title: ", M.get("running")) + spacer()
     x += bar("2.  PENULIS DAN AFILIASI / AUTHORS AND AFFILIATIONS")
     x += para(run("Cantumkan seluruh penulis sesuai urutan kontribusi beserta alamat e-mail aktif masing-masing (wajib untuk setiap penulis); tanda ★ = penulis korespondensi. / List all authors in order of contribution with an active e-mail address for each (mandatory for every author); ★ = corresponding author.", {"i": True, "color": "444444", "sz": 16}), before=40, after=60, left=120, right=120, jc="center")
 
     def tc(w, t, f, jc="center"):
         return (f'<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/><w:tcBorders></w:tcBorders><w:shd w:color="auto" w:fill="FFFFFF" w:val="clear"/></w:tcPr>'
-                + para(run(t, f), before=20, after=20, jc=jc) + "</w:tc>")
+                + para(run(t, f) if t else ph(), before=20, after=20, jc=jc) + "</w:tc>")
 
     rows = hdr_row
     for k, (i, a) in enumerate(A):
-        affs = letters(sorted(a.get("affs") or [])) if a.get("affs") else "—"
+        affs = letters(sorted(a.get("affs") or [])) if a.get("affs") else "[isi]"
         rows += ('<w:tr><w:trPr><w:trHeight w:val="270" w:hRule="atLeast"/></w:trPr>' + tc(cell_w[0], f"{k + 1}.", {"b": True, "color": BLUE, "sz": 16})
-                 + tc(cell_w[1], a["name"].strip() + ("  ★" if M.get("corr", 0) == i else ""), {"sz": 16})
-                 + tc(cell_w[2], affs, {"b": True, "color": BLUE, "sz": 16}) + tc(cell_w[3], (a.get("email") or "").strip() or "—", {"sz": 16})
-                 + tc(cell_w[4], orcid_url(a.get("orcid")) or "—", {"sz": 16}) + "</w:tr>")
+                 + tc(cell_w[1], (a["name"].strip() + ("  ★" if M.get("corr", 0) == i else "")) if a["name"].strip() else "", {"sz": 16})
+                 + tc(cell_w[2], affs, {"b": True, "color": BLUE, "sz": 16}) + tc(cell_w[3], (a.get("email") or "").strip(), {"sz": 16})
+                 + tc(cell_w[4], orcid_url(a.get("orcid")), {"sz": 16}) + "</w:tr>")
     x += tbl_open + rows + "</w:tbl>" + spacer()
     x += para(run("Keterangan Afiliasi / Affiliation Details:", {"b": True, "sz": 16}), **CENTER)
     for n, t in enumerate(M.get("affs") or []):
         if (t or "").strip():
             x += para(run(f"({chr(97 + n)}) ", {"b": True, "color": BLUE, "sz": 16}) + inline(t.strip(), {"sz": 16}), **CENTER)
+    if not any((t or "").strip() for t in M.get("affs") or []):
+        x += para(run("(a) ", {"b": True, "color": BLUE, "sz": 16}) + ph("Penulis mengisi afiliasi lengkap"), **CENTER)
     x += spacer()
     ca = M["authors"][M.get("corr", 0)] if M["authors"] else {}
     affs = M.get("affs") or []
     ai = ((ca.get("affs") or [1])[0] or 1) - 1
     c_aff = (affs[ai] if 0 <= ai < len(affs) else "").strip()
     x += bar("3.  PENULIS KORESPONDENSI / CORRESPONDING AUTHOR")
-    x += (kv("Nama Lengkap / Full Name: ", ca.get("name")) + kv("Afiliasi / Affiliation: ", c_aff) + kv("Alamat / Address: ", M.get("corr_address") or c_aff)
-          + kv("Telepon / Phone (opsional / optional): ", M.get("phone")) + kv("E-mail: ", ca.get("email")) + kv("ORCID iD: ", orcid_url(ca.get("orcid"))) + spacer())
+    x += (kv("Nama Lengkap / Full Name: ", ca.get("name")) + kv("Afiliasi / Affiliation: ", c_aff) + kv("Alamat / Address: ", M.get("corr_address"), "Penulis mengisi alamat lengkap lembaga")
+          + kv("Telepon / Phone (opsional / optional): ", M.get("phone"), "Opsional; penulis mengisi") + kv("E-mail: ", ca.get("email")) + kv("ORCID iD: ", orcid_url(ca.get("orcid"))) + spacer())
     x += bar("4.  KONTRIBUSI PENULIS / AUTHOR CONTRIBUTIONS (CRediT)")
     for i, a in A:
         ln = contrib_line(a, i, False, L)
-        x += para(run(a["name"].strip() + ": ", {"b": True}) + run(ln[ln.index(": ") + 2:] if ln else "—"), **CENTER)
+        nm = (a["name"] or "").strip()
+        x += para((run(nm + ": ", {"b": True}) if nm else ph("Penulis mengisi nama") + run(": ", {"b": True}))
+                  + (run(ln[ln.index(": ") + 2:]) if ln else ph("Penulis mengisi peran CRediT")), **CENTER)
     x += para(run("Peran CRediT / Available Roles:  ", {"b": True, "sz": 15}) + run(" · ".join(CREDIT), {"color": "444444", "sz": 15}), shd="F2F2F2", before=40, after=40, left=120, right=120, jc="center") + spacer()
     x += bar("5.  PERNYATAAN KONFLIK KEPENTINGAN / CONFLICT OF INTEREST STATEMENT") + box(cl.get("coi"), "Para penulis menyatakan tidak ada konflik kepentingan yang relevan dengan artikel ini. / The authors declare no competing interests relevant to this article.") + spacer()
     x += bar("6.  PERNYATAAN PENDANAAN / FUNDING STATEMENT") + box(cl.get("fund"), "Tidak berlaku / Not applicable") + spacer()

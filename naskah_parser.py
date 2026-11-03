@@ -72,6 +72,11 @@ def _run_text(r):
     return s
 
 
+def _slim_ns(x: str) -> str:
+    """Buang deklarasi namespace berlebih; pertahankan hanya m: dan w:."""
+    return re.sub(r'\sxmlns:(?!m=|w=)[A-Za-z0-9]+="[^"]*"', "", x)
+
+
 def _collect(el, out, doc_part, imgs, warn):
     for c in el:
         t = c.tag
@@ -92,10 +97,10 @@ def _collect(el, out, doc_part, imgs, warn):
                     imgs.append(im)
         elif t in (q("w:hyperlink"), q("w:ins"), q("w:smartTag"), q("w:fldSimple"), q("w:sdt"), q("w:sdtContent")):
             _collect(c, out, doc_part, imgs, warn)
-        elif t == q("m:oMath"):
-            out.append({"math": etree.tostring(c, encoding="unicode"), "t": ""})
-        elif t == q("m:oMathPara"):
-            out.append({"math": etree.tostring(c, encoding="unicode"), "t": "", "display": True})
+        elif t in (q("m:oMath"), q("m:oMathPara")):
+            pieces = [c] if t == q("m:oMath") else c.findall(q("m:oMath"))
+            for pc in pieces:
+                out.append({"math": _slim_ns(etree.tostring(pc, encoding="unicode")), "t": ""})
 
 
 def _image(rid, doc_part, warn):
@@ -160,8 +165,12 @@ def _para_rec(p, doc_part, warn):
         sty = (ps.get(q("w:val")) or "").lower()
     textrun = [r for r in runs if "math" not in r and r["t"].strip()]
     allbold = bool(textrun) and all(r.get("b") for r in textrun)
-    return {"k": "p", "runs": runs, "text": text.strip(), "style": sty, "bold": allbold, "imgs": imgs,
-            "math_only": bool(runs) and not text.strip() and any("math" in r for r in runs)}
+    jc = p.find(q("w:pPr") + "/" + q("w:jc"))
+    centered = jc is not None and jc.get(q("w:val")) == "center"
+    eq_num = text.strip() if re.fullmatch(r"\(\s*\d+[a-z]?\s*\)|\[\s*\d+\s*\]", text.strip()) else ""
+    has_math = any("math" in r for r in runs)
+    return {"k": "p", "runs": runs, "text": text.strip(), "style": sty, "bold": allbold, "imgs": imgs, "eq_num": eq_num, "center": centered,
+            "math_only": has_math and (not text.strip() or bool(eq_num))}
 
 
 def _cell_rec(tc, doc_part, warn):
@@ -228,7 +237,7 @@ def esc_mark(t: str) -> str:
     return re.sub(r"([*^~\\])", r"\\\1", t)
 
 
-def to_markup(runs) -> str:
+def to_markup(runs, skip_bold=False) -> str:
     out = ""
     for r in runs:
         if "math" in r:
@@ -246,7 +255,7 @@ def to_markup(runs) -> str:
             core = f"~{core}~"
         if r.get("i"):
             core = f"*{core}*"
-        if r.get("b"):
+        if r.get("b") and not skip_bold:
             core = f"**{core}**"
         out += t[:lead] + core + (t[len(t) - trail:] if trail else "")
     return out.strip()
@@ -363,9 +372,10 @@ def match_closing(rec):
 # ---------------------------------------------------------------------------
 AFF_WORDS = re.compile(r"\b(universitas|university|institut|institute|fakultas|faculty|department|departemen|politeknik|"
                        r"jurusan|program studi|sekolah|school|college|badan|balai|lembaga|laboratorium|laboratory|"
-                       r"pusat|centre|center|dinas|kementerian|rumah sakit|hospital|indonesia)\b", re.I)
+                       r"pusat|centre|center|dinas|kementerian|rumah sakit|hospital)\b", re.I)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 ORCID = re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dXx]")
+BLIND_PH = re.compile(r"removed for blind review|dihapus untuk blind|author name|nama penulis\]|\[affiliation|\[afiliasi", re.I)
 SKIP_FRONT = re.compile(r"^(diterima|received|accepted|diterbitkan|published|revised|direvisi|doi\b|article info|info artikel|"
                         r"naskah untuk telaah|manuscript under review|jurnal ilmiah platax|e-?issn|vol\.)", re.I)
 
@@ -427,7 +437,7 @@ def _parse_front(front, warns, infos):
         t = rec["text"]
         if not t:
             continue
-        if SKIP_FRONT.match(t):
+        if SKIP_FRONT.match(t) or BLIND_PH.search(t):
             continue
         rm = re.match(r"^(running title|judul singkat)[^:]*:\s*(.+)$", t, re.I)
         if rm:
@@ -469,8 +479,11 @@ def _parse_front(front, warns, infos):
     for rec in titles:
         lg = detect_lang(rec["text"])
         key = "title_id" if lg == "id" else "title_en" if lg == "en" else None
-        mk = to_markup(rec["runs"])
-        mk = re.sub(r"^\*\*(.*)\*\*$", r"\1", mk) if mk.startswith("**") and mk.endswith("**") and mk.count("**") == 2 else mk
+        rr = rec["runs"]
+        tr = [r for r in rr if "math" not in r and r["t"].strip()]
+        if tr and all(r.get("i") for r in tr):
+            rr = [dict(r, i=False) if "math" not in r else r for r in rr]
+        mk = to_markup(rr, skip_bold=True)
         if key is None:
             key = "title_id" if not R["title_id"] and (not R["title_en"] or len(titles) == 1 and False) else "title_en"
             if len(titles) == 1:
@@ -627,7 +640,7 @@ def parse_docx(data: bytes):
             if mode == "body" and cur:
                 if k == "tbl":
                     ncol = max((sum(c["span"] for c in r) for r in it["rows"]), default=0)
-                    M["sections"][cur].append({"t": "table", "cap": it["cap"], "rows": it["rows"], "note": it["note"], "full": ncol >= 6})
+                    M["sections"][cur].append({"t": "table", "cap": it["cap"], "rows": it["rows"], "note": it["note"], "full": ncol >= 6 or max((sum(len(plain_text(c["c"])) for c in r) for r in it["rows"]), default=0) > 110})
                 else:
                     M["sections"][cur].append({"t": "fig", "cap": it["cap"], "imgs": it["imgs"], "full": False})
             elif mode == "pre":
@@ -706,7 +719,10 @@ def parse_docx(data: bytes):
             if it["bold"] and len(t) < 90 and not t.endswith((".", ",", ";", ":")) and not it["math_only"] and not t.endswith(")"):
                 M["sections"][cur].append({"t": "h2", "c": re.sub(r"^\s*\d+(\.\d+)*[.)]?\s+", "", t)})
                 continue
-            M["sections"][cur].append({"t": "p", "c": it["runs"], "display": it["math_only"]})
+            if it["math_only"]:
+                M["sections"][cur].append({"t": "eq", "m": [r["math"] for r in it["runs"] if "math" in r], "num": it["eq_num"]})
+            else:
+                M["sections"][cur].append({"t": "p", "c": it["runs"], "center": bool(it["center"] and len(t) < 120 and not it["bold"])})
             continue
         if mode == "closing":
             cl_raw[ckey].append(it["runs"])
@@ -718,19 +734,9 @@ def parse_docx(data: bytes):
             continue
 
     M["refs"] = refs
-    # tandai paragraf rumus tunggal sebagai tampilan
-    for k in SECTION_KEYS:
-        for b in M["sections"][k]:
-            if b.get("t") == "p" and b.pop("display", False):
-                b["c"] = [r for r in b["c"] if "math" in r]
-                if len(b["c"]) == 1:
-                    b["c"][0]["display"] = True
-            elif b.get("t") == "p":
-                b.pop("display", None)
-
     # --- pernyataan akhir
     for key, paras in cl_raw.items():
-        text = "\n".join(x for x in (to_markup(r) for r in paras) if x)
+        text = "\n".join(x for x in (to_markup(r) for r in paras) if x and not BLIND_PH.search(x))
         if key in ("coi", "fund", "ack", "data", "ethics"):
             if text and not re.match(r"^\*?(tidak ada|none|n/?a|not applicable|tidak berlaku)\.?\*?$", text, re.I) or text:
                 M["closing"][key] = text
@@ -817,7 +823,8 @@ def _finalize(M, warns, infos, sec_found, F):
     f["Bab terdeteksi"] = ", ".join(sec_found) or "—"
     f["Tabel"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "table")
     f["Gambar"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "fig")
-    f["Rumus"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "p" and any("math" in r for r in (b["c"] if isinstance(b["c"], list) else [])))
+    f["Rumus"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k]
+                     if b.get("t") == "eq" or (b.get("t") == "p" and any("math" in r for r in b["c"])))
     f["Pustaka"] = len(M["refs"])
     if not (M["title_id"] or M["title_en"]):
         P.append("Judul tidak ditemukan. Pastikan judul berada di baris paling atas naskah.")
@@ -838,8 +845,23 @@ def _finalize(M, warns, infos, sec_found, F):
     for k, lbl in zip(SECTION_KEYS, ("Pendahuluan", "Metode", "Hasil", "Pembahasan", "Simpulan")):
         if not M["sections"][k]:
             P.append(f"Bab {lbl} tidak ditemukan atau kosong.")
+    nfig = 0
+    for k in SECTION_KEYS:
+        for b in M["sections"][k]:
+            if b.get("t") == "fig":
+                nfig += 1
+                n = max(1, len(b["imgs"]))
+                wid = (7.09 if b.get("full") else 2.99) / n
+                for im in b["imgs"]:
+                    if im.get("w") and im["w"] / wid < 300:
+                        P.append(f"Gambar {nfig} beresolusi rendah (±{round(im['w'] / wid)} dpi pada ukuran cetak). "
+                                 "Resolusi tidak dapat ditambah otomatis; pakai gambar asli yang lebih besar (disarankan ≥600 dpi).")
+                        break
     if not M["refs"]:
         P.append("Daftar pustaka tidak ditemukan.")
+    for k, v in M["closing"].items():
+        if re.search(r"\[[^\]]{3,}\]", v) and not BLIND_PH.search(v):
+            P.append(f"Bagian “{k}” masih berisi teks petunjuk dalam tanda kurung siku [ ]; lengkapi di naskah asli.")
     if M["authors"]:
         if not any(a["email"] for a in M["authors"]):
             P.append("Alamat e-mail penulis tidak ditemukan (wajib untuk Title Page).")

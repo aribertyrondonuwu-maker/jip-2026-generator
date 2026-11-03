@@ -101,33 +101,82 @@ if up is not None:
             for i, a in enumerate(M["authors"]):
                 st.caption(f"{i+1}. {a['name']}{' ★' if i == M['corr'] else ''} — afiliasi {a['affs'] or '—'}; e-mail {a['email'] or '—'}")
 
+    st.subheader("2. Data penulis untuk Title Page")
+    if not M["authors"]:
+        st.info("Naskah ini tidak memuat nama penulis (blind review). Title Page memerlukan data penulis. "
+                "Lengkapi dengan salah satu cara di bawah.")
+    else:
+        st.caption("Data penulis sudah terbaca dari naskah. Anda boleh menimpanya dengan cara di bawah.")
+    tab_up, tab_form = st.tabs(["Unggah naskah lengkap (ada nama penulis)", "Isi singkat di sini"])
+    with tab_up:
+        up2 = st.file_uploader("Naskah versi lengkap (.docx)", type=["docx"], key="full_up",
+                               help="Versi naskah yang memuat nama, afiliasi, dan e-mail penulis. Hanya data penulis yang diambil.")
+        if up2 is not None:
+            try:
+                M2, _ = _parse(hashlib.sha1(up2.getvalue()).hexdigest(), up2.getvalue())
+                if M2["authors"]:
+                    for k in ("authors", "affs", "corr", "phone"):
+                        M[k] = M2[k]
+                    for k in ("coi", "fund", "ack", "data", "ethics"):
+                        if M2["closing"].get(k) and not M["closing"].get(k):
+                            M["closing"][k] = M2["closing"][k]
+                    if M2["ai_use"] and not M["ai_use"]:
+                        M["ai_use"], M["ai_text"] = M2["ai_use"], M2["ai_text"]
+                    st.success(f"Terbaca {len(M2['authors'])} penulis dan {len(M2['affs'])} afiliasi.")
+                else:
+                    st.warning("Nama penulis tidak ditemukan di berkas ini.")
+            except Exception as e:
+                st.error(f"Berkas tidak dapat dibaca: {e}")
+    with tab_form:
+        import pandas as pd
+        n0 = max(len(M["authors"]), 1)
+        base = pd.DataFrame([{"Nama": a["name"], "E-mail": a["email"], "ORCID": a["orcid"],
+                              "No. afiliasi": ",".join(map(str, a["affs"]))} for a in M["authors"]]
+                            or [{"Nama": "", "E-mail": "", "ORCID": "", "No. afiliasi": "1"}])
+        ed = st.data_editor(base, num_rows="dynamic", use_container_width=True, key="ed_auth")
+        affd = st.data_editor(pd.DataFrame({"Afiliasi (nomor 1, 2, … sesuai urutan)": M["affs"] or [""]}),
+                              num_rows="dynamic", use_container_width=True, key="ed_aff")
+        rows = [r for r in ed.to_dict("records") if str(r.get("Nama") or "").strip()]
+        if rows and (not M["authors"] or st.session_state.get("ed_auth", {}).get("edited_rows") or st.session_state.get("ed_auth", {}).get("added_rows")):
+            old = {a["name"]: a for a in M["authors"]}
+            M["authors"] = []
+            for r in rows:
+                nm = str(r["Nama"]).strip()
+                nums = [int(x) for x in re.findall(r"\d+", str(r.get("No. afiliasi") or ""))]
+                M["authors"].append({"name": nm, "email": str(r.get("E-mail") or "").strip(),
+                                     "orcid": str(r.get("ORCID") or "").strip(), "affs": nums,
+                                     "roles": old.get(nm, {}).get("roles", [])})
+            M["affs"] = [str(x).strip() for x in affd.iloc[:, 0].tolist() if str(x).strip() and str(x) != "nan"]
+        if M["authors"]:
+            st.markdown("**Peran kontribusi (CRediT)**")
+            for i, a in enumerate(M["authors"]):
+                a["roles"] = st.multiselect(a["name"] or f"Penulis {i+1}", B.CREDIT, default=a["roles"], key=f"roles{i}_{a['name']}")
+
     with st.expander("Pengaturan tambahan (opsional)"):
         M["ojs_id"] = st.text_input("ID Naskah OJS (untuk Title Page)", value="", placeholder="PLATAX-2026-XXXX")
         if len(M["authors"]) > 1:
-            M["corr"] = st.selectbox("Penulis korespondensi", range(len(M["authors"])), index=M["corr"],
+            M["corr"] = st.selectbox("Penulis korespondensi", range(len(M["authors"])), index=min(M["corr"], len(M["authors"]) - 1),
                                      format_func=lambda i: M["authors"][i]["name"])
         M["phone"] = st.text_input("Telepon penulis korespondensi (opsional)", value="")
         M["running"] = st.text_input("Judul singkat (maks. 60 karakter)", value=M["running"], max_chars=60)
         M["lang"] = st.radio("Bahasa naskah", ["id", "en"], index=0 if M["lang"] == "id" else 1, horizontal=True,
                              format_func=lambda x: "Indonesia" if x == "id" else "English")
 
-    st.subheader("2. Unduh berkas")
-    st.markdown("Berkas dibuat dari templat resmi. Seluruh isi tetap milik Anda; hanya tata letak yang diterapkan.")
+    st.subheader("3. Unduh berkas")
+    st.markdown("Dua berkas untuk OJS dibuat dari templat resmi. Seluruh isi tetap milik Anda; hanya tata letak yang diterapkan.")
     try:
         d_blind = B.build("blind", M)
-        d_full = B.build("full", M) if M["authors"] else None
-        d_tp = B.build("title", M) if M["authors"] else None
+        d_tp = B.build("title", M)
     except Exception as e:
         st.error(f"Berkas gagal dibuat: {e}")
         st.stop()
     MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     st.download_button("⬇️  Naskah blind review (.docx) – untuk berkas utama OJS", d_blind, _fname(M, "Naskah_BlindReview"), MIME,
                        type="primary", use_container_width=True)
-    if d_tp:
-        st.download_button("⬇️  Title Page (.docx) – berkas tambahan terpisah", d_tp, _fname(M, "TitlePage"), MIME, use_container_width=True)
-        st.download_button("⬇️  Naskah lengkap dengan identitas (.docx) – arsip pribadi", d_full, _fname(M, "Naskah_Lengkap"), MIME, use_container_width=True)
-    else:
-        st.caption("Nama penulis tidak ditemukan pada naskah, sehingga Title Page dan naskah lengkap tidak dibuat.")
+    st.download_button("⬇️  Title Page (.docx) – berkas tambahan terpisah", d_tp, _fname(M, "TitlePage"), MIME, use_container_width=True)
+    if not M["authors"]:
+        st.caption("Data penulis belum diisi, sehingga Title Page berisi penanda [Penulis mengisi …] berwarna abu-abu. "
+                   "Isi langsung di Word, atau lengkapi data pada bagian 2 lalu unduh ulang.")
     st.caption("Buka hasilnya di Microsoft Word dan periksa sekali sebelum mengunggah ke OJS. Jika ada bagian yang keliru terbaca, "
                "perbaiki langsung di Word atau di naskah asli lalu unggah ulang.")
 
