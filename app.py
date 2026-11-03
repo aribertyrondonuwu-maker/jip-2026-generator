@@ -101,13 +101,18 @@ if up is not None:
             for i, a in enumerate(M["authors"]):
                 st.caption(f"{i+1}. {a['name']}{' ★' if i == M['corr'] else ''} — afiliasi {a['affs'] or '—'}; e-mail {a['email'] or '—'}")
 
+    found_authors = bool(M["authors"])
     st.subheader("2. Data penulis untuk Title Page")
-    if not M["authors"]:
+    if found_authors:
+        st.success(f"Data penulis terbaca dari naskah Anda: {len(M['authors'])} penulis, {len(M['affs'])} afiliasi. Tidak perlu mengunggah lagi.")
+        tab_up = None
+        container = st.expander("Koreksi data penulis (opsional)")
+    else:
         st.info("Naskah ini tidak memuat nama penulis (blind review). Title Page memerlukan data penulis. "
                 "Lengkapi dengan salah satu cara di bawah.")
-    else:
-        st.caption("Data penulis sudah terbaca dari naskah. Anda boleh menimpanya dengan cara di bawah.")
-    tab_up, tab_form = st.tabs(["Unggah naskah lengkap (ada nama penulis)", "Isi singkat di sini"])
+        container = st.container()
+    with container:
+        tab_up, tab_form = st.tabs(["Unggah naskah lengkap (ada nama penulis)", "Isi singkat di sini"])
     with tab_up:
         up2 = st.file_uploader("Naskah versi lengkap (.docx)", type=["docx"], key="full_up",
                                help="Versi naskah yang memuat nama, afiliasi, dan e-mail penulis. Hanya data penulis yang diambil.")
@@ -152,6 +157,8 @@ if up is not None:
             for i, a in enumerate(M["authors"]):
                 a["roles"] = st.multiselect(a["name"] or f"Penulis {i+1}", B.CREDIT, default=a["roles"], key=f"roles{i}_{a['name']}")
 
+    st.caption("Templat dipilih otomatis dari bahasa isi naskah: naskah berbahasa Inggris memakai templat EN, berbahasa Indonesia memakai templat ID. "
+               "Jika keliru, ubah di “Pengaturan tambahan”.")
     with st.expander("Pengaturan tambahan (opsional)"):
         M["ojs_id"] = st.text_input("ID Naskah OJS (untuk Title Page)", value="", placeholder="PLATAX-2026-XXXX")
         if len(M["authors"]) > 1:

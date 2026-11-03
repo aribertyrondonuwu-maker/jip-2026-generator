@@ -602,8 +602,14 @@ def body_xml(M: dict, L: dict, blind: bool, ctx: dict) -> str:
         ctx["full_used"] = True
         return sect_break(2, ctx["parts"]) + inner + sect_break(1, ctx["parts"])
 
+    merged = bool(M.get("merged_rd"))
+    num = 0
     for si, k in enumerate(SECTION_KEYS):
-        x += para(run(f"{si + 1}. ") + "<w:r><w:tab/></w:r>" + inline(L["sec"][si]),
+        if merged and k == "disc":
+            continue
+        num += 1
+        title = ("Hasil dan Pembahasan" if L is LBL["id"] else "Results and Discussion") if (merged and k == "results") else L["sec"][si]
+        x += para(run(f"{num}. ") + "<w:r><w:tab/></w:r>" + inline(title),
                   style="Heading1", keepNext=True, tabs=H_TABS, before=120, after=100)
         h2 = h3 = 0
         blocks = list((M.get("sections") or {}).get(k, []))
@@ -637,10 +643,10 @@ def body_xml(M: dict, L: dict, blind: bool, ctx: dict) -> str:
                 if t == "h2" or h2 == 0:
                     h2 += 1
                     h3 = 0
-                    label, style = f"{si + 1}.{h2}. ", "Heading2"
+                    label, style = f"{num}.{h2}. ", "Heading2"
                 else:
                     h3 += 1
-                    label, style = f"{si + 1}.{h2}.{h3}. ", "Heading3"
+                    label, style = f"{num}.{h2}.{h3}. ", "Heading3"
                 x += para(run(label) + inline(txt, {"i": True}), style=style, keepNext=True, tabs=H_TABS)
             elif t == "table":
                 tx = table_xml(b, bool(b.get("full")))

@@ -314,6 +314,27 @@ SEC_NAMES = {
 }
 SEC_LOOKUP = {n: k for k, v in SEC_NAMES.items() for n in v}
 
+
+def sec_key(name: str):
+    """Cocokkan judul bab (sudah dinormalkan) ke kunci bab; longgar untuk variasi nama."""
+    if name in SEC_LOOKUP:
+        return SEC_LOOKUP[name]
+    w = name.split()
+    if not w or len(w) > 8:
+        return None
+    has = lambda *ks: any(re.search(k, name) for k in ks)
+    if has(r"\bhasil\b|\bresults?\b|\bfindings\b|\btemuan\b"):
+        return "results"
+    if has(r"\bpembahasan\b|\bdiscussion\b"):
+        return "disc"
+    if has(r"\bmetod|\bmethod|\bbahan\b|\bmateri\b|\bmaterials?\b|cara kerja|prosedur"):
+        return "methods"
+    if has(r"\bsimpulan\b|\bkesimpulan\b|\bconclusions?\b|\bpenutup\b"):
+        return "concl"
+    if has(r"\bpendahuluan\b|\bintroduction\b|latar belakang|\bbackground\b|tinjauan pustaka|\bliterature review\b"):
+        return "intro"
+    return None
+
 CLOSING = [
     ("coi", r"(konflik kepentingan|competing interests?|conflicts? of interests?|pernyataan konflik)"),
     ("fund", r"(sumber dana|pendanaan|funding|pernyataan pendanaan)"),
@@ -583,7 +604,7 @@ def parse_docx(data: bytes):
         if not is_p(it):
             continue
         t = it["text"]
-        if ABS_RX.match(t) or KW_RX.match(t) or _head_name(t) in SEC_LOOKUP and _is_headingish(it):
+        if ABS_RX.match(t) or KW_RX.match(t) or sec_key(_head_name(t)) and _is_headingish(it):
             front_end = idx
             break
     front = [x for x in items[:front_end] if is_p(x)]
@@ -676,7 +697,7 @@ def parse_docx(data: bytes):
             continue
         # judul bab
         hn = _head_name(t)
-        top = SEC_LOOKUP.get(hn) if _is_headingish(it) or len(t) < 40 else None
+        top = sec_key(hn) if (_is_headingish(it) or len(t) < 40) else None
         ck, inline_txt = match_closing(it)
         if ck and mode != "refs":
             mode = "closing"
@@ -690,8 +711,9 @@ def parse_docx(data: bytes):
             cur = top
             h2 = 0
             sec_found.append(top)
-            if hn in ("hasil dan pembahasan", "results and discussion"):
-                infos.append("Bab “Hasil dan Pembahasan” digabung dibaca sebagai bab Hasil; bab Pembahasan dikosongkan.")
+            if re.search(r"\b(hasil|results?)\b", hn) and re.search(r"\b(pembahasan|discussion)\b", hn):
+                M["merged_rd"] = True
+                infos.append("Bab “Hasil dan Pembahasan” yang digabung dipertahankan sebagai satu bab.")
             continue
         if mode == "abs":
             if kw_done:
@@ -792,7 +814,7 @@ def _roles_from_text(M, text, warns):
 def _finalize(M, warns, infos, sec_found, F):
     # bahasa naskah
     sample = " ".join(plain_text(b.get("c", "")) for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "p")
-    lg = detect_lang(sample) or detect_lang(plain_text(M["title_id"]) + " " + plain_text(M["title_en"])) or "id"
+    lg = detect_lang(sample) or detect_lang(plain_text(M["abs_id"]) + " " + plain_text(M["abs_en"])) or "id"
     M["lang"] = lg
     # judul tunggal
     if F.get("_single_title"):
@@ -816,6 +838,7 @@ def _finalize(M, warns, infos, sec_found, F):
     f = rep["found"]
     f["Judul (Indonesia)"] = plain_text(M["title_id"])
     f["Judul (Inggris)"] = plain_text(M["title_en"])
+    f["Bahasa naskah / templat"] = "English → templat Article (EN)" if M["lang"] == "en" else "Indonesia → templat Artikel (ID)"
     f["Jumlah penulis"] = len(M["authors"])
     f["Afiliasi"] = len(M["affs"])
     f["Abstrak (kata)"] = f"ID {word_count(M['abs_id'])} / EN {word_count(M['abs_en'])}"
@@ -843,6 +866,8 @@ def _finalize(M, warns, infos, sec_found, F):
         if not kw:
             P.append(f"Kata kunci {lab} tidak ditemukan.")
     for k, lbl in zip(SECTION_KEYS, ("Pendahuluan", "Metode", "Hasil", "Pembahasan", "Simpulan")):
+        if k == "disc" and M.get("merged_rd"):
+            continue
         if not M["sections"][k]:
             P.append(f"Bab {lbl} tidak ditemukan atau kosong.")
     nfig = 0
