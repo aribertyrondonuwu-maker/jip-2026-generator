@@ -467,21 +467,49 @@ def _norm_rows(tbl: dict):
     return rows
 
 
+def _col_metrics(rows, ncols):
+    """Bobot isi dan lebar minimum (twips) tiap kolom: kata terpanjang (dipecah di tanda hubung) agar tidak terpotong."""
+    wts, mn = [6] * ncols, [420] * ncols
+    for ri, r in enumerate(rows):
+        col = 0
+        for c in r:
+            if c["span"] == 1:
+                t = plain_text(c["c"])
+                wts[col] = max(wts[col], min(40, len(t)))
+                words = [w for part in re.split(r"[\s/]+", t) for w in re.split(r"(?<=[-–—])", part)]
+                longest = max((len(w) for w in words), default=1)
+                mn[col] = max(mn[col], longest * (82 if ri == 0 else 74) + 130)
+            col += c["span"]
+    return wts, mn
+
+
+def table_needs_full(tbl: dict) -> bool:
+    rows = _norm_rows(tbl)
+    if not rows:
+        return False
+    ncols = max(sum(c["span"] for c in r) for r in rows)
+    _, mn = _col_metrics(rows, ncols)
+    return sum(mn) > 4309
+
+
 def table_xml(tbl: dict, full: bool) -> str:
     rows = _norm_rows(tbl)
     if not rows:
         return ""
     ncols = max(sum(c["span"] for c in r) for r in rows)
     total = 10460 if full else 4309
-    wts = [5] * ncols
-    for r in rows:
-        col = 0
-        for c in r:
-            if c["span"] == 1:
-                wts[col] = max(wts[col], min(40, len(plain_text(c["c"]))))
-            col += c["span"]
+    wts, mn = _col_metrics(rows, ncols)
     sm = sum(wts)
-    ws = [max(500, round(total * w / sm)) for w in wts]
+    ws = [max(mn[i], round(total * wts[i] / sm)) for i in range(ncols)]
+    over = sum(ws) - total
+    while over > 0:
+        i = max(range(ncols), key=lambda j: ws[j] - mn[j])
+        room = ws[i] - mn[i]
+        if room <= 0:
+            break
+        d = min(over, room)
+        ws[i] -= d
+        over -= d
     ws[-1] += total - sum(ws)
 
     def bd(t, b):
@@ -649,6 +677,8 @@ def body_xml(M: dict, L: dict, blind: bool, ctx: dict) -> str:
                     label, style = f"{num}.{h2}.{h3}. ", "Heading3"
                 x += para(run(label) + inline(txt, {"i": True}), style=style, keepNext=True, tabs=H_TABS)
             elif t == "table":
+                if table_needs_full(b):
+                    b = dict(b, full=True)
                 tx = table_xml(b, bool(b.get("full")))
                 if not tx:
                     continue
@@ -718,10 +748,12 @@ def body_xml(M: dict, L: dict, blind: bool, ctx: dict) -> str:
 def front_xml(M: dict, L: dict, blind: bool) -> str:
     x = ""
     ti, te = M.get("title_id") or "", M.get("title_en") or ""
-    if plain_text(ti).strip():
-        x += para(inline(ti, {"b": True, "color": BLUE, "sz": 30}), before=0, after=60, jc="left")
-    if plain_text(te).strip():
-        x += para(inline(te, {"b": True, "i": True, "sz": 20}), jc="left")
+    first, second = (te, ti) if M.get("lang") == "en" else (ti, te)
+    miss1 = "English title / judul bahasa Inggris" if M.get("lang") == "en" else "Indonesian title / judul bahasa Indonesia"
+    miss2 = "Indonesian title / judul bahasa Indonesia" if M.get("lang") == "en" else "English title / judul bahasa Inggris"
+    x += para(inline(first, {"b": True, "color": BLUE, "sz": 30}) if plain_text(first).strip() else ph("PERLU DIISI / TO BE FILLED: " + miss1),
+              before=0, after=60, jc="left")
+    x += para(inline(second, {"b": True, "i": True, "sz": 20}) if plain_text(second).strip() else ph("PERLU DIISI / TO BE FILLED: " + miss2), jc="left")
     x += para(run(L["run"], {"b": True}) + inline((M.get("running") or "").strip()), before=0, after=140, jc="left")
     if not blind:
         A = [(i, a) for i, a in enumerate(M["authors"]) if (a.get("name") or "").strip()]
@@ -759,11 +791,15 @@ def abstract_table(M: dict) -> str:
                 + para(inline(flat(abs_), {"sz": 16}))
                 + para(run(kwl, {"b": True, "sz": 16}) + inline(kw, {"sz": 16}), before=0, after=80, jc="both") + "</w:tc>")
 
+    en_args = ("Abstract", M.get("abs_en") or "", "Keywords: ", kw_en)
+    id_args = ("Abstrak", M.get("abs_id") or "", "Kata kunci: ", kw_id)
+    a1, a2 = (en_args, id_args) if M.get("lang") == "en" else (id_args, en_args)
+    first_cell, second_cell = cell(8, 4, *a1), cell(4, 8, *a2)
     return ('<w:tbl><w:tblPr><w:tblW w:w="10450" w:type="dxa"/><w:jc w:val="left"/><w:tblInd w:w="0" w:type="dxa"/><w:tblLayout w:type="fixed"/>'
             '<w:tblCellMar><w:top w:w="140" w:type="dxa"/><w:left w:w="180" w:type="dxa"/><w:bottom w:w="140" w:type="dxa"/><w:right w:w="180" w:type="dxa"/></w:tblCellMar>'
             '<w:tblLook w:val="04a0" w:noHBand="0" w:noVBand="1" w:firstColumn="1" w:lastRow="0" w:lastColumn="0" w:firstRow="1"/></w:tblPr><w:tblGrid><w:gridCol w:w="10450"/></w:tblGrid>'
-            f'<w:tr><w:trPr></w:trPr>{cell(8, 4, "Abstract", M.get("abs_en") or "", "Keywords: ", kw_en)}</w:tr>'
-            f'<w:tr><w:trPr></w:trPr>{cell(4, 8, "Abstrak", M.get("abs_id") or "", "Kata kunci: ", kw_id)}</w:tr></w:tbl>')
+            f'<w:tr><w:trPr></w:trPr>{first_cell}</w:tr>'
+            f'<w:tr><w:trPr></w:trPr>{second_cell}</w:tr></w:tbl>')
 
 
 # ----------------------------------------------------------------------------
@@ -873,6 +909,8 @@ def build_manuscript(M: dict, kind: str) -> bytes:
 
 
 def ph(t: str = "Penulis mengisi") -> str:
+    if t.startswith("Penulis mengisi"):
+        t += " / Author to fill in"
     return run(f"[{t}]", {"i": True, "color": "7F7F7F"})
 
 

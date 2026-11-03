@@ -72,6 +72,16 @@ def _run_text(r):
     return s
 
 
+def bi(i: str, e: str) -> str:
+    """Pesan dwibahasa: 'Indonesia\x1fEnglish'. Gunakan pick() di antarmuka."""
+    return f"{i}\x1f{e}"
+
+
+def pick(msg: str, lang: str) -> str:
+    a, _, b = msg.partition("\x1f")
+    return (b or a) if lang == "en" else a
+
+
 def _slim_ns(x: str) -> str:
     """Buang deklarasi namespace berlebih; pertahankan hanya m: dan w:."""
     return re.sub(r'\sxmlns:(?!m=|w=)[A-Za-z0-9]+="[^"]*"', "", x)
@@ -113,7 +123,8 @@ def _image(rid, doc_part, warn):
     ext = part.partname.ext.lower().lstrip(".")
     blob = part.blob
     if ext in ("emf", "wmf", "svg", "wdp"):
-        warn.append(f"Gambar berformat .{ext} tidak dapat dipakai ulang; ganti dengan PNG atau JPG.")
+        warn.append(bi(f"Gambar berformat .{ext} tidak dapat dipakai ulang; ganti dengan PNG atau JPG.",
+                       f"Images in .{ext} format cannot be reused; replace them with PNG or JPG."))
         return None
     w = h = None
     try:
@@ -166,7 +177,7 @@ def _para_rec(p, doc_part, warn):
     textrun = [r for r in runs if "math" not in r and r["t"].strip()]
     allbold = bool(textrun) and all(r.get("b") for r in textrun)
     jc = p.find(q("w:pPr") + "/" + q("w:jc"))
-    centered = jc is not None and jc.get(q("w:val")) == "center"
+    centered = (jc is not None and jc.get(q("w:val")) == "center") or bool(re.search(r"equation|persamaan|formula|rumus", sty if (sty := (p.find(q("w:pPr") + "/" + q("w:pStyle")).get(q("w:val")) or "").lower() if p.find(q("w:pPr") + "/" + q("w:pStyle")) is not None else "") else ""))
     eq_num = text.strip() if re.fullmatch(r"\(\s*\d+[a-z]?\s*\)|\[\s*\d+\s*\]", text.strip()) else ""
     has_math = any("math" in r for r in runs)
     return {"k": "p", "runs": runs, "text": text.strip(), "style": sty, "bold": allbold, "imgs": imgs, "eq_num": eq_num, "center": centered,
@@ -210,6 +221,12 @@ def read_items(data: bytes, warn: list):
             rows = []
             for tr in el.findall(q("w:tr")):
                 rows.append([_cell_rec(tc, part, warn) for tc in tr.findall(q("w:tc"))])
+            tbl_imgs = [im for tc in el.iter(q("w:tc")) for pp in tc.findall(q("w:p")) for im in _para_rec(pp, part, warn)["imgs"]]
+            no_text = not any(plain_text(c["c"]).strip() for r in rows for c in r)
+            if tbl_imgs and no_text:
+                items.append({"k": "p", "runs": [], "text": "", "style": "", "bold": False, "imgs": tbl_imgs, "eq_num": "",
+                              "center": False, "math_only": False})
+                continue
             items.append({"k": "t", "rows": rows})
         elif el.tag == q("w:sdt"):
             for p in el.iter(q("w:p")):
@@ -312,6 +329,7 @@ SEC_NAMES = {
     "concl": ["simpulan", "kesimpulan", "conclusion", "conclusions", "kesimpulan dan saran", "simpulan dan saran",
               "conclusions and recommendations"],
 }
+B_LBL_EN = {"intro": "Introduction", "methods": "Methods", "results": "Results", "disc": "Discussion", "concl": "Conclusion"}
 B_LBL = {"intro": "Pendahuluan", "methods": "Metode", "results": "Hasil", "disc": "Pembahasan", "concl": "Simpulan"}
 SEC_LOOKUP = {n: k for k, v in SEC_NAMES.items() for n in v}
 
@@ -471,7 +489,8 @@ def _parse_front(front, warns, infos):
             if len(t) - sum(len(e) for e in em) < 12 or re.match(r"^(corresponding|penulis korespondensi|email|e-mail|correspondence|\*)", t, re.I):
                 R["orcids"] += ORCID.findall(t)
                 continue
-        if re.match(r"^(\*|corresponding|penulis korespondensi|correspondence|korespondensi)", t, re.I) and not AFF_WORDS.search(t):
+        if (re.match(r"^([*#†‡]|corresponding|penulis korespondensi|correspondence|korespondensi)", t, re.I) and not AFF_WORDS.search(t)) \
+                or (re.match(r"^[*#†‡]", t) and re.search(r"korespond|correspond", t, re.I)):
             continue
         if ORCID.search(t) and not AFF_WORDS.search(t):
             R["orcids"] += ORCID.findall(t)
@@ -547,8 +566,16 @@ def _parse_front(front, warns, infos):
 # ---------------------------------------------------------------------------
 # pengurai utama
 # ---------------------------------------------------------------------------
+def _cap_num(runs, rx):
+    if not runs:
+        return None
+    m = re.match(rx.pattern.replace(r"\s*\d+", r"\s*(\d+)", 1), "".join(r["t"] for r in runs if "math" not in r), re.I)
+    return int(m.group(2)) if m and m.lastindex and m.lastindex >= 2 else None
+
+
 def _link_captions(items):
     """Gabungkan gambar berurutan, pasangkan keterangan tabel/gambar, dan tandai paragraf yang terpakai."""
+    items = [x for x in items if not (x["k"] == "p" and not x["text"] and not x["imgs"] and not x["math_only"])]
     out = []
     i = 0
     n = len(items)
@@ -567,7 +594,8 @@ def _link_captions(items):
                 j += 1
             elif not cap and out and out[-1]["k"] == "p" and FCAP.match(out[-1]["text"] or "") and not out[-1].get("used"):
                 capr = out.pop()["runs"]
-            out.append({"k": "fig", "imgs": imgs, "cap": strip_prefix(capr, FCAP.pattern) if capr else []})
+            out.append({"k": "fig", "imgs": imgs, "cap": strip_prefix(capr, FCAP.pattern) if capr else [],
+                        "num": _cap_num(capr, FCAP)})
             i = j
             continue
         if it["k"] == "t":
@@ -582,7 +610,8 @@ def _link_captions(items):
             if j < n and items[j]["k"] == "p" and NOTE_RX.match(items[j]["text"] or ""):
                 note = strip_prefix(items[j]["runs"], NOTE_RX.pattern)
                 j += 1
-            out.append({"k": "tbl", "rows": it["rows"], "cap": strip_prefix(capr, TCAP.pattern) if capr else [], "note": note or []})
+            out.append({"k": "tbl", "rows": it["rows"], "cap": strip_prefix(capr, TCAP.pattern) if capr else [], "note": note or [],
+                        "num": _cap_num(capr, TCAP)})
             i = j
             continue
         out.append(it)
@@ -636,7 +665,8 @@ def parse_docx(data: bytes):
         for a, o in zip(M["authors"], orcids):
             a["orcid"] = o
     if not M["authors"]:
-        infos.append("Nama penulis tidak ditemukan; dianggap naskah blind-review (Title Page tidak dibuat).")
+        infos.append(bi("Nama penulis tidak ditemukan; dianggap naskah blind-review. Title Page berisi penanda isian.",
+                    "No author names found; treated as a blind-review manuscript. The Title Page contains fill-in placeholders."))
 
     # --- badan naskah
     rest = items[front_end:]
@@ -663,11 +693,11 @@ def parse_docx(data: bytes):
             if mode == "body" and cur:
                 if k == "tbl":
                     ncol = max((sum(c["span"] for c in r) for r in it["rows"]), default=0)
-                    M["sections"][cur].append({"t": "table", "cap": it["cap"], "rows": it["rows"], "note": it["note"], "full": ncol >= 6 or max((sum(len(plain_text(c["c"])) for c in r) for r in it["rows"]), default=0) > 110})
+                    M["sections"][cur].append({"t": "table", "cap": it["cap"], "rows": it["rows"], "note": it["note"], "srcnum": it.get("num"), "full": ncol >= 6 or max((sum(len(plain_text(c["c"])) for c in r) for r in it["rows"]), default=0) > 110})
                 else:
-                    M["sections"][cur].append({"t": "fig", "cap": it["cap"], "imgs": it["imgs"], "full": False})
+                    M["sections"][cur].append({"t": "fig", "cap": it["cap"], "imgs": it["imgs"], "full": False, "srcnum": it.get("num")})
             elif mode == "pre":
-                warns.append("Ada tabel/gambar sebelum bab pertama; dilewati.")
+                warns.append(bi("Ada tabel/gambar sebelum bab pertama; dilewati.", "A table/figure appears before the first section and was skipped."))
             continue
         if k == "t":
             continue
@@ -708,7 +738,8 @@ def parse_docx(data: bytes):
             for k2 in SECTION_KEYS[start:]:
                 if k2 not in sec_found:
                     top = k2
-                    infos.append(f"Judul “{t}” dibaca sebagai bab {B_LBL[k2]} berdasarkan urutan nomor bab.")
+                    infos.append(bi(f"Judul “{t}” dibaca sebagai bab {B_LBL[k2]} berdasarkan urutan nomor bab.",
+                                    f"Heading “{t}” was read as the {B_LBL_EN[k2]} section based on section numbering."))
                     break
         ck, inline_txt = match_closing(it)
         if ck and mode != "refs":
@@ -725,7 +756,8 @@ def parse_docx(data: bytes):
             sec_found.append(top)
             if re.search(r"\b(hasil|results?)\b", hn) and re.search(r"\b(pembahasan|discussion)\b", hn):
                 M["merged_rd"] = True
-                infos.append("Bab “Hasil dan Pembahasan” yang digabung dipertahankan sebagai satu bab.")
+                infos.append(bi("Bab “Hasil dan Pembahasan” yang digabung dipertahankan sebagai satu bab.",
+                                "The combined “Results and Discussion” section is kept as a single section."))
             continue
         if mode == "abs":
             if kw_done:
@@ -821,10 +853,39 @@ def _roles_from_text(M, text, warns):
             M["authors"][target]["roles"] = sorted(set(M["authors"][target]["roles"] + roles), key=CREDIT.index)
             got += 1
     if not got:
-        warns.append("Bagian kontribusi penulis ditemukan tetapi peran CRediT tidak dapat dicocokkan dengan nama penulis.")
+        warns.append(bi("Bagian kontribusi penulis ditemukan tetapi peran CRediT tidak dapat dicocokkan dengan nama penulis.",
+                    "An author-contribution section was found, but CRediT roles could not be matched to author names."))
 
 
 TRAIL = set("dan and of the di pada untuk dengan from in on for to by a an atau or yang".split())
+
+
+SMALL = set("dan di pada untuk dengan dari yang ke atau oleh dalam serta and of the in on for to by from a an at with or".split())
+
+
+def smart_title_case(t: str, acr: set) -> str:
+    """Ubah judul HURUF KAPITAL menjadi Title Case; akronim (dari naskah) dan isi tanda kurung dipertahankan."""
+    letters = [c for c in t if c.isalpha()]
+    if not letters or sum(c.isupper() for c in letters) / len(letters) < 0.7:
+        return t
+    out, depth = [], 0
+    for i, tok in enumerate(t.split(" ")):
+        core = re.sub(r"[^\wÀ-ÿ]", "", tok)
+        depth_in = depth > 0 or tok.startswith("(")
+        depth += tok.count("(") - tok.count(")")
+        if not core or core.isdigit() or any(c.isdigit() for c in core) or depth_in or core in acr:
+            out.append(tok)
+        elif core.lower() in SMALL and i > 0:
+            out.append(tok.lower())
+        else:
+            out.append(tok[:1].upper() + tok[1:].lower() if tok[:1].isalpha() else tok[:2].upper() + tok[2:].lower())
+    return " ".join(out)
+
+
+def _acronyms(M) -> set:
+    txt = " ".join([M["abs_id"], M["abs_en"], M["kw_id"], M["kw_en"]] +
+                   [plain_text(b["c"]) for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "p" and isinstance(b.get("c"), list)][:60])
+    return {w for w in re.findall(r"\b[A-Z][A-Z0-9]{1,7}\b", txt)}
 
 
 def make_running_title(title, limit: int = 60) -> str:
@@ -862,52 +923,69 @@ def _finalize(M, warns, infos, sec_found, F):
             M["title_id"], M["title_en"] = only, ""
         else:
             M["title_en"], M["title_id"] = only, ""
+    # judul HURUF KAPITAL
+    acr = _acronyms(M)
+    for key in ("title_id", "title_en"):
+        if M[key]:
+            nt = smart_title_case(M[key], acr)
+            if nt != M[key]:
+                M[key] = nt
+                infos.append(bi("Judul ditulis dengan huruf kapital semua; diubah menjadi huruf judul (Title Case). Periksa nama ilmiah dan akronim.",
+                                "The title was in all capitals; converted to Title Case. Check scientific names and acronyms."))
     # judul singkat (dibuat otomatis bila tidak ditulis)
     if not M["running"]:
         M["running"] = make_running_title(M["title_en"] if lg == "en" and M["title_en"] else (M["title_id"] or M["title_en"]))
         if M["running"]:
-            infos.append("Judul singkat dibuat otomatis dari judul (maks. 60 karakter); dapat diubah di “Pengaturan tambahan”.")
-    # akhir: ringkasan temuan
+            infos.append(bi("Judul singkat dibuat otomatis dari judul (maks. 60 karakter); dapat diubah di “Pengaturan tambahan”.",
+                        "The running title was generated from the title (max. 60 characters); you can edit it under “Additional settings”."))
+    # akhir: ringkasan temuan (pesan dwibahasa: "id\x1fen"; kunci 'found' netral bahasa)
     rep = {"warnings": list(dict.fromkeys(warns)), "infos": infos, "found": {}, "problems": []}
     P = rep["problems"]
     f = rep["found"]
-    f["Judul (Indonesia)"] = plain_text(M["title_id"])
-    f["Judul (Inggris)"] = plain_text(M["title_en"])
-    f["Bahasa naskah / templat"] = "English → templat Article (EN)" if M["lang"] == "en" else "Indonesia → templat Artikel (ID)"
-    f["Jumlah penulis"] = len(M["authors"])
-    f["Afiliasi"] = len(M["affs"])
-    f["Abstrak (kata)"] = f"ID {word_count(M['abs_id'])} / EN {word_count(M['abs_en'])}"
-    f["Kata kunci"] = f"ID {len(split_keywords(M['kw_id']))} / EN {len(split_keywords(M['kw_en']))}"
-    f["Bab terdeteksi"] = ", ".join(sec_found) or "—"
-    f["Tabel"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "table")
-    f["Gambar"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "fig")
-    f["Rumus"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k]
-                     if b.get("t") == "eq" or (b.get("t") == "p" and any("math" in r for r in b["c"])))
-    f["Pustaka"] = len(M["refs"])
+    f["title_id"] = plain_text(M["title_id"])
+    f["title_en"] = plain_text(M["title_en"])
+    f["lang"] = M["lang"]
+    f["authors"] = len(M["authors"])
+    f["affs"] = len(M["affs"])
+    f["abstract"] = f"ID {word_count(M['abs_id'])} / EN {word_count(M['abs_en'])}"
+    f["keywords"] = f"ID {len(split_keywords(M['kw_id']))} / EN {len(split_keywords(M['kw_en']))}"
+    f["sections"] = ", ".join(B_LBL[k] for k in sec_found) or "—"
+    f["tables"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "table")
+    f["figures"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "fig")
+    f["equations"] = sum(1 for k in SECTION_KEYS for b in M["sections"][k]
+                         if b.get("t") == "eq" or (b.get("t") == "p" and any("math" in r for r in b["c"])))
+    f["refs"] = len(M["refs"])
     if not (M["title_id"] or M["title_en"]):
-        P.append("Judul tidak ditemukan. Pastikan judul berada di baris paling atas naskah.")
-    if not M["title_en"] or not M["title_id"]:
-        P.append("Hanya satu bahasa judul yang ditemukan; templat meminta judul Indonesia dan Inggris.")
+        P.append(bi("Judul tidak ditemukan. Pastikan judul berada di baris paling atas naskah.",
+                    "Title not found. Make sure the title is on the first line of the manuscript."))
     if not M["abs_id"] or not M["abs_en"]:
-        P.append("Abstrak dwibahasa belum lengkap (butuh “Abstrak” dan “Abstract”).")
-    for lab, ab in (("Indonesia", M["abs_id"]), ("Inggris", M["abs_en"])):
+        P.append(bi("Abstrak dwibahasa belum lengkap (butuh “Abstrak” dan “Abstract”).",
+                    "Bilingual abstract is incomplete (both “Abstrak” and “Abstract” are required)."))
+    for lab_i, lab_e, ab in (("Indonesia", "Indonesian", M["abs_id"]), ("Inggris", "English", M["abs_en"])):
         wc = word_count(ab)
         if ab and not 100 <= wc <= 300:
-            P.append(f"Abstrak {lab} {wc} kata (disarankan sekitar 150–250 kata).")
-    for lab, kw in (("Indonesia", M["kw_id"]), ("Inggris", M["kw_en"])):
+            P.append(bi(f"Abstrak {lab_i} {wc} kata (disarankan sekitar 150–250 kata).",
+                        f"The {lab_e} abstract has {wc} words (about 150–250 recommended)."))
+    for lab_i, lab_e, kw in (("Indonesia", "Indonesian", M["kw_id"]), ("Inggris", "English", M["kw_en"])):
         n = len(split_keywords(kw))
         if kw and not 3 <= n <= 6:
-            P.append(f"Kata kunci {lab} berjumlah {n} (disarankan 3–5).")
+            P.append(bi(f"Kata kunci {lab_i} berjumlah {n} (disarankan 3–5).", f"{lab_e} keywords: {n} (3–5 recommended)."))
         if not kw:
-            P.append(f"Kata kunci {lab} tidak ditemukan.")
-    for k, lbl in zip(SECTION_KEYS, ("Pendahuluan", "Metode", "Hasil", "Pembahasan", "Simpulan")):
+            P.append(bi(f"Kata kunci {lab_i} tidak ditemukan.", f"{lab_e} keywords not found."))
+    for k, lbl, lbl_e in zip(SECTION_KEYS, ("Pendahuluan", "Metode", "Hasil", "Pembahasan", "Simpulan"),
+                             ("Introduction", "Methods", "Results", "Discussion", "Conclusion")):
         if k == "disc" and M.get("merged_rd"):
             continue
         if not M["sections"][k]:
-            hint = ""
-            if M.get("_heads"):
-                hint = " Judul yang terbaca di naskah: " + "; ".join(h[:45] for h in M["_heads"][:10]) + "."
-            P.append(f"Bab {lbl} tidak ditemukan atau kosong.{hint}")
+            heads = "; ".join(h[:45] for h in (M.get("_heads") or [])[:10])
+            P.append(bi(f"Bab {lbl} tidak ditemukan atau kosong." + (f" Judul yang terbaca di naskah: {heads}." if heads else ""),
+                        f"Section “{lbl_e}” was not found or is empty." + (f" Headings read from the manuscript: {heads}." if heads else "")))
+    for kind, lab_i, lab_e in (("table", "tabel", "table"), ("fig", "gambar", "figure")):
+        nums = [b.get("srcnum") for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == kind]
+        if any(n is not None for n in nums) and None not in nums and nums != list(range(1, len(nums) + 1)):
+            ns = ", ".join(str(n) for n in nums)
+            P.append(bi(f"Penomoran {lab_i} di naskah tidak berurutan ({ns}). Aplikasi memberi nomor ulang berurutan; periksa rujukan “{lab_i.capitalize()} N” di dalam teks.",
+                        f"{lab_e.capitalize()} numbering in the manuscript is not sequential ({ns}). The app renumbers them; check the “{lab_e.capitalize()} N” references in the text."))
     nfig = 0
     for k in SECTION_KEYS:
         for b in M["sections"][k]:
@@ -917,22 +995,24 @@ def _finalize(M, warns, infos, sec_found, F):
                 wid = (7.09 if b.get("full") else 2.99) / n
                 for im in b["imgs"]:
                     if im.get("w") and im["w"] / wid < 300:
-                        P.append(f"Gambar {nfig} beresolusi rendah (±{round(im['w'] / wid)} dpi pada ukuran cetak). "
-                                 "Resolusi tidak dapat ditambah otomatis; pakai gambar asli yang lebih besar (disarankan ≥600 dpi).")
+                        d = round(im["w"] / wid)
+                        P.append(bi(f"Gambar {nfig} beresolusi rendah (±{d} dpi pada ukuran cetak). Resolusi tidak dapat ditambah otomatis; pakai gambar asli yang lebih besar (disarankan ≥600 dpi).",
+                                    f"Figure {nfig} has low resolution (≈{d} dpi at print size). Resolution cannot be truly increased; use a larger original image (≥600 dpi recommended)."))
                         break
     if not M["refs"]:
-        P.append("Daftar pustaka tidak ditemukan.")
+        P.append(bi("Daftar pustaka tidak ditemukan.", "Reference list not found."))
     for k, v in M["closing"].items():
         if re.search(r"\[[^\]]{3,}\]", v) and not BLIND_PH.search(v):
-            P.append(f"Bagian “{k}” masih berisi teks petunjuk dalam tanda kurung siku [ ]; lengkapi di naskah asli.")
+            P.append(bi(f"Bagian “{k}” masih berisi teks petunjuk dalam tanda kurung siku [ ]; lengkapi di naskah asli.",
+                        f"Section “{k}” still contains instruction text in square brackets [ ]; complete it in the original manuscript."))
     if M["authors"]:
         if not any(a["email"] for a in M["authors"]):
-            P.append("Alamat e-mail penulis tidak ditemukan (wajib untuk Title Page).")
+            P.append(bi("Alamat e-mail penulis tidak ditemukan (wajib untuk Title Page).", "Author e-mail address not found (required for the Title Page)."))
         if not M["affs"]:
-            P.append("Afiliasi penulis tidak ditemukan.")
+            P.append(bi("Afiliasi penulis tidak ditemukan.", "Author affiliations not found."))
         miss = [a["name"] for a in M["authors"] if not a["roles"]]
         if miss:
-            P.append("Peran CRediT belum ada untuk: " + ", ".join(miss) + ".")
+            P.append(bi("Peran CRediT belum ada untuk: " + ", ".join(miss) + ".", "CRediT roles are missing for: " + ", ".join(miss) + "."))
     # sitiran tanpa pustaka
     from naskah_builder import build_ref_index, cite_spans
     ri = build_ref_index(M["refs"])
@@ -947,7 +1027,9 @@ def _finalize(M, warns, infos, sec_found, F):
                         total += 1
                         if not sp.get("anchor"):
                             bad.add(sp["label"])
-    f["Sitiran dikenali"] = total
+    f["cites"] = total
     if bad and M["refs"]:
-        rep["warnings"].append("Sitiran yang tidak ditemukan padanannya di daftar pustaka: " + "; ".join(sorted(bad)[:12]) + (" …" if len(bad) > 12 else ""))
+        lst = "; ".join(sorted(bad)[:12]) + (" …" if len(bad) > 12 else "")
+        rep["warnings"].append(bi("Sitiran yang tidak ditemukan padanannya di daftar pustaka: " + lst,
+                                  "Citations with no matching entry in the reference list: " + lst))
     return M, rep
