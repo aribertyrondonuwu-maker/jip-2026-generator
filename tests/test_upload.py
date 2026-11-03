@@ -28,3 +28,12 @@ def test_blind_has_no_identity():
     d = docx.Document(io.BytesIO(B.build("blind", M)))
     txt = "\n".join(p.text for p in d.paragraphs)
     assert "Budi Santoso" not in txt and "budi@unsrat.ac.id" not in txt
+
+
+def test_equations_and_title_page_placeholder():
+    M, rep = P.parse_docx((Path(__file__).with_name("contoh_rumus.docx")).read_bytes())
+    eqs = [b for b in M["sections"]["results"] if b["t"] == "eq"]
+    assert len(eqs) == 2 and eqs[0]["num"] == "(1)"
+    M["authors"] = []  # naskah blind tanpa penulis: Title Page tetap dibuat dengan penanda
+    d = docx.Document(io.BytesIO(B.build("title", M)))
+    assert "Penulis mengisi" in "\n".join(p.text for p in d.paragraphs)
