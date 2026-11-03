@@ -312,6 +312,7 @@ SEC_NAMES = {
     "concl": ["simpulan", "kesimpulan", "conclusion", "conclusions", "kesimpulan dan saran", "simpulan dan saran",
               "conclusions and recommendations"],
 }
+B_LBL = {"intro": "Pendahuluan", "methods": "Metode", "results": "Hasil", "disc": "Pembahasan", "concl": "Simpulan"}
 SEC_LOOKUP = {n: k for k, v in SEC_NAMES.items() for n in v}
 
 
@@ -648,6 +649,7 @@ def parse_docx(data: bytes):
     cl_raw: dict[str, list] = {}
     refs: list = []
     sec_found = []
+    seen_heads: list[str] = []
 
     def put_abs(lang, runs):
         key = "abs_id" if lang == "id" else "abs_en"
@@ -698,6 +700,16 @@ def parse_docx(data: bytes):
         # judul bab
         hn = _head_name(t)
         top = sec_key(hn) if (_is_headingish(it) or len(t) < 40) else None
+        if _is_headingish(it) and mode in ("pre", "abs", "body") and len(seen_heads) < 40 and not re.match(r"^\s*\d+\.\d+", t):
+            seen_heads.append(t)
+        if (not top and mode in ("abs", "body") and _is_headingish(it) and re.match(r"^\s*\d+[.)]?\s+\S", t)
+                and not re.match(r"^\s*\d+\.\d+", t) and len(t) < 90 and not match_closing(it)[0]):
+            start = SECTION_KEYS.index(cur) + 1 if cur else 0
+            for k2 in SECTION_KEYS[start:]:
+                if k2 not in sec_found:
+                    top = k2
+                    infos.append(f"Judul “{t}” dibaca sebagai bab {B_LBL[k2]} berdasarkan urutan nomor bab.")
+                    break
         ck, inline_txt = match_closing(it)
         if ck and mode != "refs":
             mode = "closing"
@@ -778,6 +790,7 @@ def parse_docx(data: bytes):
                 M["ai_use"] = "no"
             elif text:
                 M["ai_use"], M["ai_text"] = "yes", text
+    M["_heads"] = seen_heads
     return _finalize(M, warns, infos, sec_found, F)
 
 
@@ -811,6 +824,31 @@ def _roles_from_text(M, text, warns):
         warns.append("Bagian kontribusi penulis ditemukan tetapi peran CRediT tidak dapat dicocokkan dengan nama penulis.")
 
 
+TRAIL = set("dan and of the di pada untuk dengan from in on for to by a an atau or yang".split())
+
+
+def make_running_title(title, limit: int = 60) -> str:
+    t = plain_text(title) if not isinstance(title, str) else B_strip(title)
+    t = re.sub(r"\s+", " ", t).strip()
+    if not t:
+        return ""
+    for sep in (": ", " – ", " — ", " - ", "? "):
+        if sep in t and len(t.split(sep)[0]) >= 18:
+            t = t.split(sep)[0]
+            break
+    if len(t) > limit:
+        t = t[:limit].rsplit(" ", 1)[0]
+    w = t.split()
+    while len(w) > 3 and w[-1].lower().strip(",.;") in TRAIL:
+        w.pop()
+    return " ".join(w).strip(" ,.;:-")
+
+
+def B_strip(s: str) -> str:
+    from naskah_builder import strip_markup
+    return strip_markup(s)
+
+
 def _finalize(M, warns, infos, sec_found, F):
     # bahasa naskah
     sample = " ".join(plain_text(b.get("c", "")) for k in SECTION_KEYS for b in M["sections"][k] if b.get("t") == "p")
@@ -824,14 +862,11 @@ def _finalize(M, warns, infos, sec_found, F):
             M["title_id"], M["title_en"] = only, ""
         else:
             M["title_en"], M["title_id"] = only, ""
-    # judul singkat
+    # judul singkat (dibuat otomatis bila tidak ditulis)
     if not M["running"]:
-        base = plain_text(M["title_en"] or M["title_id"])
-        if len(base) > 60:
-            base = base[:60].rsplit(" ", 1)[0]
-        M["running"] = base.strip(" ,:;-")
-        if base:
-            infos.append("Judul singkat tidak tertulis; dibuat otomatis dari judul (maks. 60 karakter).")
+        M["running"] = make_running_title(M["title_en"] if lg == "en" and M["title_en"] else (M["title_id"] or M["title_en"]))
+        if M["running"]:
+            infos.append("Judul singkat dibuat otomatis dari judul (maks. 60 karakter); dapat diubah di “Pengaturan tambahan”.")
     # akhir: ringkasan temuan
     rep = {"warnings": list(dict.fromkeys(warns)), "infos": infos, "found": {}, "problems": []}
     P = rep["problems"]
@@ -869,7 +904,10 @@ def _finalize(M, warns, infos, sec_found, F):
         if k == "disc" and M.get("merged_rd"):
             continue
         if not M["sections"][k]:
-            P.append(f"Bab {lbl} tidak ditemukan atau kosong.")
+            hint = ""
+            if M.get("_heads"):
+                hint = " Judul yang terbaca di naskah: " + "; ".join(h[:45] for h in M["_heads"][:10]) + "."
+            P.append(f"Bab {lbl} tidak ditemukan atau kosong.{hint}")
     nfig = 0
     for k in SECTION_KEYS:
         for b in M["sections"][k]:
